@@ -3,11 +3,34 @@ import "std.um"
 
 type BuildData = struct {
 	outFile: std::File
+	compileNames: map[str]bool
 }
 
 type Build* = struct {
 	outPath: str
 	data: ^BuildData
+}
+
+type Compile* = struct {
+	b: ^Build
+	name: str
+}
+
+type LazyPath* = struct {
+	path: str
+}
+
+type RawString* = struct {
+	s: str
+}
+
+fn (p: ^LazyPath) get*(): str {
+	return "b.path(\"" + p.path + "\")"
+}
+
+fn (b: ^Build) fatal(s: str) {
+	fprintf(std::stderr(), "fatal: %s\n", s)
+	exit(1)
 }
 
 fn (b: ^Build) gen*(s: str) {
@@ -28,34 +51,96 @@ fn (b: ^Build) genFooter*() {
 	b.gen("}")
 }
 
+fn (b: ^Build) sanitizeSymbolName*(n: str): bool {
+	if len(n) == 0 { return false }
+
+	isValidFirstChar := fn(c: char): bool {
+		ci := int(c)
+		return (ci >= int('a') && ci <= int('z')) || (ci >= int('A') && ci <= int('Z')) || c == '_'
+	}
+
+	isValidChar := fn(c: char): bool |isValidFirstChar| {
+		ci := int(c)
+		return isValidFirstChar(c) || (ci >= int('0') && ci <= int('9'))
+	}
+
+	if !isValidFirstChar(n[0]) { return false }
+
+	for _,c in n {
+		if !isValidChar(c) { return false }
+	}
+
+	return true
+}
+
+fn (b: ^Build) path*(p: str): LazyPath {
+	return {p}
+}
+
+fn (b: ^Build) serialize(a: any): str {
+	switch v := type(a) {
+	case RawString: return v.s
+	case LazyPath: return "b.path(" + b.serialize(v.path) + ")"
+	case map[str]any:
+		out := ".{"
+		for k,e in v {
+			out += "." + k + "=" + b.serialize(e) + ","
+		}
+		
+		return out + "}"
+	case str:
+		// TODO: properly escape
+		return "\"" + v + "\""
+	case []str:
+		out := "&[_][]const u8{"
+		for s in v {
+			out += b.serialize(s)
+		}
+		return out + "}"
+	case Compile:
+		if !b.data.compileNames[v.name] { b.fatal("unknown Compile: " + v.name) }
+		return v.name
+	}
+
+	return sprintf("%v", a)
+}
+
+fn (b: ^Build) genCallEx(obj, fName: str, args: []any) {
+	argsStr := ""
+	for i,a in args {
+		argsStr += b.serialize(a)
+		if i < len(args) - 1 {
+			argsStr += ", "
+		}
+	}
+
+	b.gen(obj + "." + fName + "(" + argsStr + ");")
+}
+
+fn (b: ^Build) genCall(fName: str, args: ..any) {
+	b.genCallEx("b", fName, args)
+}
+
+
 // TODO: Some kind of b.chDir(dir: str, cmd: fn(b: ^Build))
 
 // TODO: b.platStr
 
 // TODO: b.includeZig
 
-type LazyPath* = struct {
-	path: str
+fn (c: ^Compile) genCall(fName: str, args: ..any) {
+	c.b.genCallEx(c.b.serialize(c^), fName, args)
 }
-
-fn (p: ^LazyPath) get*(): str {
-	return "b.path(\"" + p.path + "\")"
-}
-
-// TODO: Escape
-fn (b: ^Build) path*(p: str): LazyPath {
-	return {p}
-}
-
-type Compile* = struct {
-	b: ^Build
-	name: str
-}
-
-// TODO: Add c.genCall(fn: str, args: ..any) method
 
 fn (b: ^Build) addSharedLibrary*(name: str): Compile {
-	// TODO: sanitize name
+	if !b.sanitizeSymbolName(name) {
+		b.fatal("invalid symbol name: " + name)
+	}
+	if b.data.compileNames[name] {
+		b.fatal("name already used: " + name)
+	}
+
+	b.data.compileNames[name] = true
 
 	c := Compile{
 		b: b,
@@ -68,73 +153,67 @@ fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 }
 
 fn (c: ^Compile) addAfterIncludePath*(path: LazyPath) {
-	c.b.gen(sprintf("%s.addAfterIncludePath(%s);", c.name, path.get()))
+	c.genCall("addAfterIncludePath", path)
 }
 
 fn (c: ^Compile) addAssemblyFile*(path: LazyPath) {
-	c.b.gen(sprintf("%s.addAssemblyFile(%s);", c.name, path.get()))
+	c.genCall("addAssemblyFile", path)
 }
 
-fn (c: ^Compile) addCSourceFile*(path: LazyPath, flags: str = "") {
-	// TODO: .flags
-	c.b.gen(sprintf("%s.addCSourceFile(.{ .file = %s });", c.name, path.get()))
+fn (c: ^Compile) addCSourceFile*(path: LazyPath, flags: []str = {}) {
+	c.genCall("addCSourceFile", map[str]any{ "file": path, "flags": flags })
 }
 
 fn (c: ^Compile) addFrameworkPath*(directory: LazyPath) {
-	c.b.gen(sprintf("%s.addFrameworkPath(%s);", c.name, directory.get()))
+	c.genCall("addFrameworkPath", directory)
 }
 
 fn (c: ^Compile) addIncludePath*(directory: LazyPath) {
-	c.b.gen(sprintf("%s.addIncludePath(%s);", c.name, directory.get()))
+	c.genCall("addIncludePath", directory)
 }
 
 fn (c: ^Compile) addLibraryPath*(directory: LazyPath) {
-	c.b.gen(sprintf("%s.addLibraryPath(%s);", c.name, directory.get()))
+	c.genCall("addLibraryPath", directory)
 }
 
 fn (c: ^Compile) addObject*(object: Compile) {
-	// TODO: check existence
-	c.b.gen(sprintf("%s.addObject(%s);", c.name, object.name))
+	c.genCall("addObject", object)
 }
 
 fn (c: ^Compile) addObjectFile*(file: LazyPath) {
-	c.b.gen(sprintf("%s.addObjectFile(%s);", c.name, file.get()))
+	c.genCall("addObjectFile", file)
 }
 
 fn (c: ^Compile) addSystemIncludePath*(directory: LazyPath) {
-	c.b.gen(sprintf("%s.addSystemIncludePath(%s);", c.name, directory.get()))
+	c.genCall("addSystemIncludePath", directory)
 }
 
 fn (c: ^Compile) addSystemLibraryPath*(directory: LazyPath) {
-	c.b.gen(sprintf("%s.addSystemLibraryPath(%s);", c.name, directory.get()))
+	c.genCall("addSystemLibraryPath", directory)
 }
 
 fn (c: ^Compile) linkLibC*() {
-	c.b.gen(sprintf("%s.linkLibC();", c.name))
+	c.genCall("linkLibC")
 }
 
 fn (c: ^Compile) linkLibCpp*() {
-	c.b.gen(sprintf("%s.linkLibCpp();", c.name))
+	c.genCall("linkLibCpp")
 }
 
 fn (c: ^Compile) linkLibrary*(lib: Compile) {
-	// TODO: check existence
-	c.b.gen(sprintf("%s.linkLibrary(%s);", c.name, lib.name))
+	c.genCall("linkLibrary", lib)
 }
 
 fn (c: ^Compile) linkSystemLibrary*(name: str) {
-	c.b.gen(sprintf("%s.linkSystemLibrary(%s);", c.name, name))
+	c.genCall("linkSystemLibrary")
 }
 
 fn (c: ^Compile) setExecCmd*(args: ..str) {
-	// TODO: This is kind of hacky (much more than rest of this program),
-	// but the umka default representation should be valid zig code.
-	// This will be solved when I add c.genCall
-	c.b.gen(sprintf("%s.setExecCmd(%v);", c.name, args))
+	c.genCall("setExecCmd", args)
 }
 
 fn (c: ^Compile) setVersionScript*(source: LazyPath) {
-	c.b.gen(sprintf("%s.setVersionScript(%s);", c.name, source.get()))
+	c.genCall("setVersionScript", source)
 }
 
 type Module* = struct {
@@ -175,21 +254,25 @@ fn (m: ^Module) addUMI*(): Compile {
 }
 
 fn (m: ^Module) install*(subDir: str = ".") {
-	m.b.gen(sprintf("b.installFile(\"%s\", \"%s\");", m.source.path, subDir + "/" + m.name + ".um"))
+	m.b.genCall("installFile", m.source.path, subDir + "/" + m.name + ".um")
 
 	if (m.umi.name == "") {
 		return
 	}
 
-	m.b.gen(sprintf("const %s_umi_install = b.addInstallArtifact(%s, .{", m.name, m.umi.name))
-	m.b.gen(sprintf(".dest_sub_path = \"%s.umi\",", m.name))
-	if subDir == "." {
-		m.b.gen(".dest_dir = .{ .override = .prefix },")
-	} else {
-		m.b.gen(sprintf(".dest_dir = .{ .override = .{ .custom = %s }},", m.name))
+	// TODO: implement proper symbol checking for all types
+	m.b.gen(sprintf("const %s_umi_install = ", m.name))
+	args := map[str]any{
+		"dest_sub_path": m.name + ".umi",
+		"dylib_symlinks": false
 	}
-	m.b.gen(".dylib_symlinks = false });")
-	m.b.gen(sprintf("b.getInstallStep().dependOn(&os_umi_install.step);"))
+	if subDir == "."{
+		args["dest_dir"] = RawString{".{ .override = .prefix }"}
+	} else {
+		args["dest_dir"] = RawString{sprintf(".dest_dir = .{ .override = .{ .custom = %s }},", m.name)}
+	}
+	m.b.genCall("addInstallArtifact", m.umi, args)
+	m.b.gen("b.getInstallStep().dependOn(&os_umi_install.step);")
 }
 
 fn __init*(b: ^Build): int {

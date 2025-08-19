@@ -1,0 +1,224 @@
+
+import "std.um"
+
+type BuildData = struct {
+	outFile: std::File
+}
+
+type Build* = struct {
+	outPath: str
+	data: ^BuildData
+}
+
+fn (b: ^Build) gen*(s: str) {
+	fprintf(b.data.outFile, "%s\n", s);
+}
+
+fn (b: ^Build) genHeader*() {
+	b.gen(
+		"const std = @import(\"std\");\n" +
+
+		"pub fn build(b: *std.Build) !void {\n" +
+			"const target = b.standardTargetOptions(.{});\n" +
+			"const optimize = b.standardOptimizeOption(.{});"
+	)
+}
+
+fn (b: ^Build) genFooter*() {
+	b.gen("}")
+}
+
+// TODO: Some kind of b.chDir(dir: str, cmd: fn(b: ^Build))
+
+// TODO: b.platStr
+
+// TODO: b.includeZig
+
+type LazyPath* = struct {
+	path: str
+}
+
+fn (p: ^LazyPath) get*(): str {
+	return "b.path(\"" + p.path + "\")"
+}
+
+// TODO: Escape
+fn (b: ^Build) path*(p: str): LazyPath {
+	return {p}
+}
+
+type Compile* = struct {
+	b: ^Build
+	name: str
+}
+
+// TODO: Add c.genCall(fn: str, args: ..any) method
+
+fn (b: ^Build) addSharedLibrary*(name: str): Compile {
+	// TODO: sanitize name
+
+	c := Compile{
+		b: b,
+		name: name
+	}
+
+	// TODO: Solve target and optimize at higher level
+	b.gen(sprintf("const %s = b.addSharedLibrary(.{.name = \"%s\",.target=target,.optimize=optimize,});", name, name))
+	return c
+}
+
+fn (c: ^Compile) addAfterIncludePath*(path: LazyPath) {
+	c.b.gen(sprintf("%s.addAfterIncludePath(%s);", c.name, path.get()))
+}
+
+fn (c: ^Compile) addAssemblyFile*(path: LazyPath) {
+	c.b.gen(sprintf("%s.addAssemblyFile(%s);", c.name, path.get()))
+}
+
+fn (c: ^Compile) addCSourceFile*(path: LazyPath, flags: str = "") {
+	// TODO: .flags
+	c.b.gen(sprintf("%s.addCSourceFile(.{ .file = %s });", c.name, path.get()))
+}
+
+fn (c: ^Compile) addFrameworkPath*(directory: LazyPath) {
+	c.b.gen(sprintf("%s.addFrameworkPath(%s);", c.name, directory.get()))
+}
+
+fn (c: ^Compile) addIncludePath*(directory: LazyPath) {
+	c.b.gen(sprintf("%s.addIncludePath(%s);", c.name, directory.get()))
+}
+
+fn (c: ^Compile) addLibraryPath*(directory: LazyPath) {
+	c.b.gen(sprintf("%s.addLibraryPath(%s);", c.name, directory.get()))
+}
+
+fn (c: ^Compile) addObject*(object: Compile) {
+	// TODO: check existence
+	c.b.gen(sprintf("%s.addObject(%s);", c.name, object.name))
+}
+
+fn (c: ^Compile) addObjectFile*(file: LazyPath) {
+	c.b.gen(sprintf("%s.addObjectFile(%s);", c.name, file.get()))
+}
+
+fn (c: ^Compile) addSystemIncludePath*(directory: LazyPath) {
+	c.b.gen(sprintf("%s.addSystemIncludePath(%s);", c.name, directory.get()))
+}
+
+fn (c: ^Compile) addSystemLibraryPath*(directory: LazyPath) {
+	c.b.gen(sprintf("%s.addSystemLibraryPath(%s);", c.name, directory.get()))
+}
+
+fn (c: ^Compile) linkLibC*() {
+	c.b.gen(sprintf("%s.linkLibC();", c.name))
+}
+
+fn (c: ^Compile) linkLibCpp*() {
+	c.b.gen(sprintf("%s.linkLibCpp();", c.name))
+}
+
+fn (c: ^Compile) linkLibrary*(lib: Compile) {
+	// TODO: check existence
+	c.b.gen(sprintf("%s.linkLibrary(%s);", c.name, lib.name))
+}
+
+fn (c: ^Compile) linkSystemLibrary*(name: str) {
+	c.b.gen(sprintf("%s.linkSystemLibrary(%s);", c.name, name))
+}
+
+fn (c: ^Compile) setExecCmd*(args: ..str) {
+	// TODO: This is kind of hacky (much more than rest of this program),
+	// but the umka default representation should be valid zig code.
+	// This will be solved when I add c.genCall
+	c.b.gen(sprintf("%s.setExecCmd(%v);", c.name, args))
+}
+
+fn (c: ^Compile) setVersionScript*(source: LazyPath) {
+	c.b.gen(sprintf("%s.setVersionScript(%s);", c.name, source.get()))
+}
+
+type Module* = struct {
+	b: ^Build
+	name: str
+	source: LazyPath
+	umi: Compile
+}
+
+fn (b: ^Build) addModule*(source: LazyPath): Module {
+	m := Module{}
+	m.b = b
+	m.source = source
+	// TODO: Do this in zig helper function
+	start := -1
+	end := -1
+	for i,c in source.path {
+		if c == '/' {
+			start = i
+		}
+
+		if c == '.' {
+			end = i
+		}
+	}
+	if (start < 0) { start = 0 }
+	if (end < 0) { end = len(source.path) - 1 }
+	
+	m.name = slice(source.path, start, end)
+
+	return m
+}
+
+fn (m: ^Module) addUMI*(): Compile {
+	m.umi = m.b.addSharedLibrary(m.name + "_umi")
+	m.umi.linkLibC();
+	return m.umi
+}
+
+fn (m: ^Module) install*(subDir: str = ".") {
+	m.b.gen(sprintf("b.installFile(\"%s\", \"%s\");", m.source.path, subDir + "/" + m.name + ".um"))
+
+	if (m.umi.name == "") {
+		return
+	}
+
+	m.b.gen(sprintf("const %s_umi_install = b.addInstallArtifact(%s, .{", m.name, m.umi.name))
+	m.b.gen(sprintf(".dest_sub_path = \"%s.umi\",", m.name))
+	if subDir == "." {
+		m.b.gen(".dest_dir = .{ .override = .prefix },")
+	} else {
+		m.b.gen(sprintf(".dest_dir = .{ .override = .{ .custom = %s }},", m.name))
+	}
+	m.b.gen(".dylib_symlinks = false });")
+	m.b.gen(sprintf("b.getInstallStep().dependOn(&os_umi_install.step);"))
+}
+
+fn __init*(b: ^Build): int {
+	b.data = new(BuildData)
+
+	if b.outPath == "" {
+		b.data.outFile = std::stdout()
+	} else {
+		var err: std::Err
+		b.data.outFile, err = std::fopen(b.outPath, "w")
+		if err.code != 0 {
+			return err.code
+		}
+	}
+
+	b.genHeader()
+
+	return 0
+}
+
+fn __deinit*(b: ^Build): int {
+	b.genFooter()
+
+	if b.outPath != "" {
+		err := std::fclose(b.data.outFile)
+		if err.code != 0 {
+			return err.code
+		}
+	}
+
+	return 0
+}

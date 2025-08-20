@@ -165,7 +165,7 @@ pub fn main() !void {
                     } else {
                         std.log.err("unknown target {s}, available targets: ", .{s});
                         inline for (std.meta.fields(Target)) |f| {
-                            std.log.err("\t{s}", .{f.name});
+                            std.log.err("\t{s} (default)", .{f.name});
                         }
                         std.process.exit(1);
                     }
@@ -178,6 +178,10 @@ pub fn main() !void {
             std.log.err("invalid argument {s}", .{arg});
             printHelpAndExit(1);
         }
+    }
+
+    if (targets.items.len == 0) {
+        try targets.append(.default);
     }
 
     const buildZigPath = try runBuildUm();

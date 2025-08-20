@@ -9,8 +9,18 @@ type Symbol = struct {
 	}
 }
 
+type Target = enum(int32) {
+    def
+    linux
+    linux_musl
+    linux_glibc
+    windows
+    emscripten
+}
+
 type BuildData = struct {
 	outFile: std::File
+	targets: []Target
 	symbols: map[str]Symbol
 	srcDir: str
 	installDir: str
@@ -44,17 +54,43 @@ fn (b: ^Build) gen*(s: str) {
 }
 
 fn (b: ^Build) genHeader*() {
-	b.gen(
-		"const std = @import(\"std\");\n" +
+	b.gen("const std = @import(\"std\");")
 
+	b.gen("const targets: []const std.Target.Query = &.{")
+	for i,t in b.data.targets {
+		switch t {
+		case .def: b.gen(".{},")
+		case .linux: b.gen(".{ .os_tag = .linux, .abi = .musl },")
+		case .linux_musl: b.gen(".{ .os_tag = .linux, .abi = .musl },")
+		case .linux_glibc: b.gen(".{ .os_tag = .linux, .abi = .gnu },")
+		case .windows: b.gen(".{ .os_tag = .windows },")
+		case .emscripten: b.gen(".{ .os_tag = .emscripten },")
+		}
+	}
+	b.gen("};")
+
+	b.gen("const target_tags = [_][]const u8{")
+	for i,t in b.data.targets {
+		switch t {
+		case .def: b.gen("\"\",")
+		case .linux: b.gen("\"_linux\",")
+		case .linux_musl: b.gen("\"_linux\",")
+		case .linux_glibc: b.gen("\"_linux\",")
+		case .windows: b.gen("\"_windows\",")
+		case .emscripten: b.gen("\"_emscripten\",")
+		}
+	}
+	b.gen("};")
+
+	b.gen(
 		"pub fn build(b: *std.Build) !void {\n" +
-			"const target = b.standardTargetOptions(.{});\n" +
-			"const optimize = b.standardOptimizeOption(.{});"
+			"const optimize = b.standardOptimizeOption(.{});\n" +
+			"for (targets, 0..) |target,i| {\n"
 	)
 }
 
 fn (b: ^Build) genFooter*() {
-	b.gen("}")
+	b.gen("}\n}")
 }
 
 fn (b: ^Build) sanitizeSymbolName*(n: str): bool {
@@ -205,7 +241,7 @@ fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 	}
 
 	// TODO: Solve target and optimize at higher level
-	b.gen(sprintf("const %s = b.addSharedLibrary(.{.name = \"%s\",.target=target,.optimize=optimize,});", name, name))
+	b.gen(sprintf("const %s = b.addSharedLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
 	return c
 }
 
@@ -325,7 +361,7 @@ fn (m: ^Module) install*() {
 	m.b.data.symbols[sym] = { exists: true, kind: .install }
 	m.b.gen(sprintf("const %s = ", sym))
 	args := map[str]any{
-		"dest_sub_path": m.name + ".umi",
+		"dest_sub_path": RawString{sprintf("try std.fmt.allocPrint(b.allocator, \"%s{s}.umi\", .{target_tags[i]})", m.name)},
 		"dylib_symlinks": false
 	}
 	if m.b.data.installDir == ""{
@@ -336,6 +372,8 @@ fn (m: ^Module) install*() {
 	m.b.genCall("addInstallArtifact", m.umi, args)
 	m.b.gen("b.getInstallStep().dependOn(&os_umi_install.step);")
 }
+
+fn umc__getTargets(T: ^void, out: ^[]Target)
 
 fn __init*(b: ^Build): int {
 	b.data = new(BuildData)
@@ -349,6 +387,8 @@ fn __init*(b: ^Build): int {
 			return err.code
 		}
 	}
+
+	umc__getTargets(typeptr([]Target), &b.data.targets)
 
 	b.genHeader()
 

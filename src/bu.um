@@ -1,9 +1,17 @@
 
 import "std.um"
 
+type Symbol = struct {
+	exists: bool
+	kind: enum{
+		compile
+		install
+	}
+}
+
 type BuildData = struct {
 	outFile: std::File
-	compileNames: map[str]bool
+	symbols: map[str]Symbol
 	srcDir: str
 	installDir: str
 }
@@ -121,7 +129,9 @@ fn (b: ^Build) serialize(a: any): str {
 		}
 		return out + "}"
 	case Compile:
-		if !b.data.compileNames[v.name] { b.fatal("unknown Compile: " + v.name) }
+		sym := b.data.symbols[v.name] 
+		if !sym.exists { b.fatal("unknown Compile: " + v.name) }
+		if sym.kind != .compile { b.fatal(v.name + " is not of type Compile") }
 		return v.name
 	}
 
@@ -180,11 +190,14 @@ fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 	if !b.sanitizeSymbolName(name) {
 		b.fatal("invalid symbol name: " + name)
 	}
-	if b.data.compileNames[name] {
+	if b.data.symbols[name].exists {
 		b.fatal("name already used: " + name)
 	}
 
-	b.data.compileNames[name] = true
+	b.data.symbols[name] = {
+		exists: true,
+		kind: .compile
+	}
 
 	c := Compile{
 		b: b,
@@ -307,8 +320,10 @@ fn (m: ^Module) install*() {
 		return
 	}
 
-	// TODO: implement proper symbol checking for all types
-	m.b.gen(sprintf("const %s_umi_install = ", m.name))
+	sym := sprintf("%s_umi_install", m.name)
+	if m.b.data.symbols[sym].exists { m.b.fatal("symbol exists: " + sym) }
+	m.b.data.symbols[sym] = { exists: true, kind: .install }
+	m.b.gen(sprintf("const %s = ", sym))
 	args := map[str]any{
 		"dest_sub_path": m.name + ".umi",
 		"dylib_symlinks": false

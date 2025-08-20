@@ -4,6 +4,8 @@ import "std.um"
 type BuildData = struct {
 	outFile: std::File
 	compileNames: map[str]bool
+	srcDir: str
+	installDir: str
 }
 
 type Build* = struct {
@@ -22,10 +24,6 @@ type LazyPath* = struct {
 
 type RawString* = struct {
 	s: str
-}
-
-fn (p: ^LazyPath) get*(): str {
-	return "b.path(\"" + p.path + "\")"
 }
 
 fn (b: ^Build) fatal(s: str) {
@@ -77,10 +75,27 @@ fn (b: ^Build) path*(p: str): LazyPath {
 	return {p}
 }
 
+fn (b: ^Build) resolveSrcPath(p: str): str {
+		if b.data.srcDir != "" {
+			return b.data.srcDir + "/" + p
+		}
+
+		return p
+}
+
+fn (b: ^Build) resolveInstallPath(p: str): str {
+		if b.data.installDir != "" {
+			return b.data.installDir + "/" + p
+		}
+
+		return p
+}
+
 fn (b: ^Build) serialize(a: any): str {
 	switch v := type(a) {
 	case RawString: return v.s
-	case LazyPath: return "b.path(" + b.serialize(v.path) + ")"
+	case LazyPath:
+		return "b.path(" + b.serialize(b.resolveSrcPath(v.path)) + ")"
 	case map[str]any:
 		out := ".{"
 		for k,e in v {
@@ -89,8 +104,16 @@ fn (b: ^Build) serialize(a: any): str {
 		
 		return out + "}"
 	case str:
-		// TODO: properly escape
-		return "\"" + v + "\""
+		out := ""
+		// TODO: this is probably slow
+		for _,c in v {
+			if c == '"' { out += "\\\""
+			} else if c == '\n' { out += "\\n"
+			} else if c == '\t' { out += "\\t"
+			} else if c == '\r' { out += "\\r"
+			} else { out += str(c) }
+		}
+		return "\"" + out + "\""
 	case []str:
 		out := "&[_][]const u8{"
 		for s in v {
@@ -121,8 +144,29 @@ fn (b: ^Build) genCall(fName: str, args: ..any) {
 	b.genCallEx("b", fName, args)
 }
 
+fn (b: ^Build) include*(f: fn(b: ^Build), par: struct{
+	srcDir: str
+	installDir: str
+}) {
+	oldData := BuildData{}
+	oldData = b.data^
+	if b.data.srcDir == "" {
+		b.data.srcDir = par.srcDir
+	} else {
+		b.data.srcDir += "/" + par.srcDir
+	}
 
-// TODO: Some kind of b.chDir(dir: str, cmd: fn(b: ^Build))
+	if b.data.installDir == "" {
+		b.data.installDir = par.installDir
+	} else {
+		b.data.installDir += "/" + par.installDir
+	}
+
+	b.gen("{")
+	f(b)
+	b.gen("}")
+	b.data ^= oldData
+}
 
 // TODO: b.platStr
 
@@ -253,8 +297,11 @@ fn (m: ^Module) addUMI*(): Compile {
 	return m.umi
 }
 
-fn (m: ^Module) install*(subDir: str = ".") {
-	m.b.genCall("installFile", m.source.path, subDir + "/" + m.name + ".um")
+fn (m: ^Module) install*() {
+	m.b.genCall("installFile",
+		m.b.resolveSrcPath(m.source.path),
+		m.b.resolveInstallPath(m.name + ".um")
+	)
 
 	if (m.umi.name == "") {
 		return
@@ -266,10 +313,10 @@ fn (m: ^Module) install*(subDir: str = ".") {
 		"dest_sub_path": m.name + ".umi",
 		"dylib_symlinks": false
 	}
-	if subDir == "."{
+	if m.b.data.installDir == ""{
 		args["dest_dir"] = RawString{".{ .override = .prefix }"}
 	} else {
-		args["dest_dir"] = RawString{sprintf(".dest_dir = .{ .override = .{ .custom = %s }},", m.name)}
+		args["dest_dir"] = RawString{sprintf(".{ .override = .{ .custom = %s }}", m.b.serialize(m.b.data.installDir))}
 	}
 	m.b.genCall("addInstallArtifact", m.umi, args)
 	m.b.gen("b.getInstallStep().dependOn(&os_umi_install.step);")

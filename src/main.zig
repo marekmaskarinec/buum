@@ -42,6 +42,7 @@ fn printHelpAndExit(status: u8) void {
         "\t-C <dir>\t-- change root directory\n" ++
         "\t-t <targets>\t-- set build targets\n" ++
         "\t-z <path>\t-- path to zig install directory\n" ++
+        "\t-k\t-- keep build.zig\n" ++
         "\t-g\t-- only generate\n" ++
         "\t-h\t-- show this help message\n") catch {};
     std.process.exit(status);
@@ -116,7 +117,7 @@ fn runBuildZig(gpa: std.mem.Allocator, zig_bin: []const u8, path: []const u8) !u
     // TODO: Make this basepath(path)/out
     try std.fs.cwd().makePath("buum/out");
 
-    const args = [_][]const u8{ zig_bin, "build", "--build-file", path, "--prefix", "buum/out" };
+    const args = [_][]const u8{ zig_bin, "build", "--build-file", path, "--prefix", "buum/out", "--cache-dir", "buum/cache" };
     var cmd = std.process.Child.init(&args, gpa);
     const term = try std.process.Child.spawnAndWait(&cmd);
     return switch (term) {
@@ -146,6 +147,7 @@ pub fn main() !void {
     const gpa = gpa_impl.allocator();
 
     var gen_only = false;
+    var keep_build_zig = false;
     var opt_zig_path: ?[]const u8 = null;
     targets = std.ArrayList(Target).init(gpa);
     defer targets.deinit();
@@ -200,6 +202,8 @@ pub fn main() !void {
                 std.log.err("usage: buum -z <path>", .{});
                 std.process.exit(1);
             }
+        } else if (std.mem.eql(u8, arg, "-k")) {
+            keep_build_zig = true;
         } else {
             std.log.err("invalid argument {s}", .{arg});
             printHelpAndExit(1);
@@ -223,5 +227,10 @@ pub fn main() !void {
     defer gpa.free(zig_bin_path);
 
     try emb.unrollZig(gpa, zig_path);
-    std.process.exit(try runBuildZig(gpa, zig_bin_path, build_zig_path));
+    const ec = try runBuildZig(gpa, zig_bin_path, build_zig_path);
+
+    if (!keep_build_zig)
+        try std.fs.cwd().deleteFile(build_zig_path);
+
+    std.process.exit(ec);
 }

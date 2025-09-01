@@ -1,5 +1,7 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const umka = @import("umka");
+const emb = @import("emb.zig");
 
 const bu_um = @embedFile("bu.um");
 
@@ -39,6 +41,7 @@ fn printHelpAndExit(status: u8) void {
     std.io.getStdErr().writeAll("buum - an Umka builder\n" ++
         "\t-C <dir>\t-- change root directory\n" ++
         "\t-t <targets>\t-- set build targets\n" ++
+        "\t-z <path>\t-- path to zig install directory\n" ++
         "\t-g\t-- only generate\n" ++
         "\t-h\t-- show this help message\n") catch {};
     std.process.exit(status);
@@ -109,12 +112,11 @@ fn runBuildUm() ![]const u8 {
     return std.mem.sliceTo(build.outPath, 0);
 }
 
-fn runBuildZig(gpa: std.mem.Allocator, path: []const u8) !u8 {
+fn runBuildZig(gpa: std.mem.Allocator, zig_bin: []const u8, path: []const u8) !u8 {
     // TODO: Make this basepath(path)/out
     try std.fs.cwd().makePath("buum/out");
 
-    // TODO: Embedded Zig
-    const args = [_][]const u8{ "zig", "build", "--build-file", path, "--prefix", "buum/out" };
+    const args = [_][]const u8{ zig_bin, "build", "--build-file", path, "--prefix", "buum/out" };
     var cmd = std.process.Child.init(&args, gpa);
     const term = try std.process.Child.spawnAndWait(&cmd);
     return switch (term) {
@@ -123,11 +125,28 @@ fn runBuildZig(gpa: std.mem.Allocator, path: []const u8) !u8 {
     };
 }
 
+fn getDefaultZigDir(allocator: std.mem.Allocator) ![]u8 {
+    if (builtin.os.tag == .windows) {
+        const app_data = try std.process.getEnvVarOwned(allocator, "LocalAppData");
+        defer allocator.free(app_data);
+        return std.fs.path.join(allocator, &.{ app_data, "buum", "zig" });
+    }
+
+    const home = try std.process.getEnvVarOwned(allocator, "HOME");
+    defer allocator.free(home);
+    return std.fs.path.join(allocator, &.{ home, ".cache", "buum", "zig" });
+}
+
+fn getZigBinPath(allocator: std.mem.Allocator, zig_path: []const u8) ![]u8 {
+    return std.fs.path.join(allocator, &.{ zig_path, if (builtin.os.tag == .windows) "zig.exe" else "zig" });
+}
+
 pub fn main() !void {
     var gpa_impl = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = gpa_impl.allocator();
 
-    var genOnly = false;
+    var gen_only = false;
+    var opt_zig_path: ?[]const u8 = null;
     targets = std.ArrayList(Target).init(gpa);
     defer targets.deinit();
 
@@ -145,7 +164,7 @@ pub fn main() !void {
                 std.process.exit(1);
             }
         } else if (std.mem.eql(u8, arg, "-g")) {
-            genOnly = true;
+            gen_only = true;
         } else if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             printHelpAndExit(0);
         } else if (std.mem.eql(u8, arg, "-t")) {
@@ -174,6 +193,13 @@ pub fn main() !void {
                 std.log.err("usage: buum -t <target list>", .{});
                 std.process.exit(1);
             }
+        } else if (std.mem.eql(u8, arg, "-z")) {
+            if (args.next()) |next| {
+                opt_zig_path = next;
+            } else {
+                std.log.err("usage: buum -z <path>", .{});
+                std.process.exit(1);
+            }
         } else {
             std.log.err("invalid argument {s}", .{arg});
             printHelpAndExit(1);
@@ -184,12 +210,18 @@ pub fn main() !void {
         try targets.append(.default);
     }
 
-    const buildZigPath = try runBuildUm();
+    const build_zig_path = try runBuildUm();
 
-    if (genOnly) {
-        std.log.info("Result saved to {s}", .{buildZigPath});
+    if (gen_only) {
+        std.log.info("Result saved to {s}", .{build_zig_path});
         return;
     }
 
-    std.process.exit(try runBuildZig(gpa, buildZigPath));
+    const zig_path: []const u8 = if (opt_zig_path) |p| p else try getDefaultZigDir(gpa);
+    defer if (opt_zig_path == null) gpa.free(zig_path);
+    const zig_bin_path = try getZigBinPath(gpa, zig_path);
+    defer gpa.free(zig_bin_path);
+
+    try emb.unrollZig(gpa, zig_path);
+    std.process.exit(try runBuildZig(gpa, zig_bin_path, build_zig_path));
 }

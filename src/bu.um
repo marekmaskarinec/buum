@@ -240,7 +240,7 @@ fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 		name: name
 	}
 
-	// TODO: Solve target and optimize at higher level
+	// TODO: Solve optimize at higher level
 	b.gen(sprintf("const %s = b.addSharedLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
 	return c
 }

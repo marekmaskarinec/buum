@@ -38,6 +38,7 @@ type Compile* = struct {
 		umi
 		exe
 		sharedLib
+		staticLib
 	}
 	// Only used for UMIs
 	moduleName: str
@@ -280,6 +281,30 @@ fn (b: ^Build) addExecutable*(name: str): Compile {
 
 	// TODO: Solve optimize at higher level
 	b.gen(sprintf("const %s = b.addExecutable(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
+	return c
+}
+
+fn (b: ^Build) addStaticLibrary*(name: str): Compile {
+	if !b.sanitizeSymbolName(name) {
+		b.fatal("invalid symbol name: " + name)
+	}
+	if b.data.symbols[name].exists {
+		b.fatal("name already used: " + name)
+	}
+
+	b.data.symbols[name] = {
+		exists: true,
+		kind: .compile
+	}
+
+	c := Compile{
+		b: b,
+		name: name,
+		kind: .staticLib
+	}
+
+	// TODO: Solve optimize at higher level
+	b.gen(sprintf("const %s = b.addStaticLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
 	return c
 }
 

@@ -21,6 +21,7 @@ type Target = enum(int32) {
 type BuildData = struct {
 	outFile: std::File
 	targets: []Target
+	targetToIndex: map[Target]int
 	symbols: map[str]Symbol
 	srcDir: str
 	installDir: str
@@ -28,6 +29,7 @@ type BuildData = struct {
 
 type Build* = struct {
 	outPath: str
+	defTarget: Target
 	data: ^BuildData
 }
 
@@ -69,6 +71,7 @@ fn (b: ^Build) genHeader*() {
 
 	b.gen("const targets: []const std.Target.Query = &.{")
 	for i,t in b.data.targets {
+		b.data.targetToIndex[t] = i
 		switch t {
 		case .def: b.gen(".{},")
 		case .linux: b.gen(".{ .os_tag = .linux, .abi = .musl },")
@@ -173,7 +176,7 @@ fn (b: ^Build) serialize(a: any): str {
 		return "\"" + out + "\""
 	case []str:
 		out := "&[_][]const u8{"
-		for s in v {
+		for i,s in v {
 			out += b.serialize(s)
 		}
 		return out + "}"
@@ -201,6 +204,31 @@ fn (b: ^Build) genCallEx(obj, fName: str, args: []any) {
 
 fn (b: ^Build) genCall(fName: str, args: ..any) {
 	b.genCallEx("b", fName, args)
+}
+
+fn (b: ^Build) forTarget*(t: Target, f: fn(b: ^Build)) {
+	if t == b.defTarget { t = .def }
+	if !validkey(b.data.targetToIndex, t) { return }
+
+	b.gen(sprintf("if (i == %d) {", b.data.targetToIndex[t]))
+	f(b)
+	b.gen("}")
+}
+
+fn (b: ^Build) forTargets*(targets: []Target, f: fn(b: ^Build)) {
+	cond := ""
+	for i,t in targets {
+		if t == b.defTarget { t = .def }
+		if !validkey(b.data.targetToIndex, t) { continue }
+		cond += sprintf("i == %d", b.data.targetToIndex[t])
+		if i < len(targets) - 1 { cond += " or " }
+	}
+
+	if len(cond) == 0 { return }
+
+	b.gen("if (" + cond + ") {")
+	f(b)
+	b.gen("}")
 }
 
 fn (b: ^Build) include*(f: fn(b: ^Build), par: struct{

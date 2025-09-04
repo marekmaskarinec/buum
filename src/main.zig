@@ -66,9 +66,19 @@ fn umc__getTargets(params: [*]umka.StackSlot, result: *umka.StackSlot) callconv(
     std.mem.copyForwards(Target, arr.slice(), targets.items);
 }
 
+fn getDefTarget() Target {
+    return switch (builtin.target.os.tag) {
+        .windows => .windows,
+        .emscripten => .emscripten,
+        .linux => if (builtin.target.abi.isGnu()) .linux_glibc else .linux_musl,
+        else => .def,
+    };
+}
+
 fn runBuildUm() ![]const u8 {
     const Build = extern struct {
         outPath: [*:0]const u8,
+        defTarget: Target,
         data: *anyopaque,
     };
 
@@ -86,6 +96,7 @@ fn runBuildUm() ![]const u8 {
 
     var build: Build = .{
         .outPath = "build.zig",
+        .defTarget = getDefTarget(),
         .data = undefined,
     };
 
@@ -186,7 +197,7 @@ pub fn main() !void {
                     } else {
                         std.log.err("unknown target {s}, available targets: ", .{s});
                         inline for (std.meta.fields(Target)) |f| {
-                            std.log.err("\t{s} (default)", .{f.name});
+                            std.log.err("\t{s}", .{f.name});
                         }
                         std.process.exit(1);
                     }

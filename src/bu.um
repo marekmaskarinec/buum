@@ -34,6 +34,13 @@ type Build* = struct {
 type Compile* = struct {
 	b: ^Build
 	name: str
+	kind: enum {
+		umi
+		exe
+		sharedLib
+	}
+	// Only used for UMIs
+	moduleName: str
 }
 
 type LazyPath* = struct {
@@ -55,6 +62,9 @@ fn (b: ^Build) gen*(s: str) {
 
 fn (b: ^Build) genHeader*() {
 	b.gen("const std = @import(\"std\");")
+	// Zig is pretty annyoing with discards. If you discard a value,
+	// but then use it later, it will produce an error.
+	b.gen("fn __discard(v: *const anyopaque) void { _ = v; }")
 
 	b.gen("const targets: []const std.Target.Query = &.{")
 	for i,t in b.data.targets {
@@ -85,7 +95,9 @@ fn (b: ^Build) genHeader*() {
 	b.gen(
 		"pub fn build(b: *std.Build) !void {\n" +
 			"const optimize = b.standardOptimizeOption(.{});\n" +
-			"for (targets, 0..) |target,i| {\n"
+			"for (targets, 0..) |target,i| {\n" +
+			"  __discard(@ptrCast(&target));\n" +
+			"  __discard(@ptrCast(&i));\n"
 	)
 }
 
@@ -219,6 +231,7 @@ fn (b: ^Build) include*(f: fn(b: ^Build), par: struct{
 // TODO: b.includeZig
 
 fn (c: ^Compile) genCall(fName: str, args: ..any) {
+// TODO: Compile.install
 	c.b.genCallEx(c.b.serialize(c^), fName, args)
 }
 
@@ -237,11 +250,36 @@ fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 
 	c := Compile{
 		b: b,
-		name: name
+		name: name,
+		kind: .sharedLib
 	}
 
 	// TODO: Solve optimize at higher level
 	b.gen(sprintf("const %s = b.addSharedLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
+	return c
+}
+
+fn (b: ^Build) addExecutable*(name: str): Compile {
+	if !b.sanitizeSymbolName(name) {
+		b.fatal("invalid symbol name: " + name)
+	}
+	if b.data.symbols[name].exists {
+		b.fatal("name already used: " + name)
+	}
+
+	b.data.symbols[name] = {
+		exists: true,
+		kind: .compile
+	}
+
+	c := Compile{
+		b: b,
+		name: name,
+		kind: .exe
+	}
+
+	// TODO: Solve optimize at higher level
+	b.gen(sprintf("const %s = b.addExecutable(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
 	return c
 }
 
@@ -298,7 +336,7 @@ fn (c: ^Compile) linkLibrary*(lib: Compile) {
 }
 
 fn (c: ^Compile) linkSystemLibrary*(name: str) {
-	c.genCall("linkSystemLibrary")
+	c.genCall("linkSystemLibrary", name)
 }
 
 fn (c: ^Compile) setExecCmd*(args: ..str) {
@@ -307,6 +345,30 @@ fn (c: ^Compile) setExecCmd*(args: ..str) {
 
 fn (c: ^Compile) setVersionScript*(source: LazyPath) {
 	c.genCall("setVersionScript", source)
+}
+
+fn (c: ^Compile) install*() {
+	sym := c.name + "_install"
+	if c.b.data.symbols[sym].exists { c.b.fatal("symbol exists: " + sym) }
+	c.b.data.symbols[sym] = { exists: true, kind: .install }
+	c.b.gen(sprintf("const %s = ", sym))
+	var args: map[str]any
+
+	switch (c.kind) {
+	case .umi:
+		args = map[str]any{
+			"dest_sub_path": RawString{sprintf("try std.fmt.allocPrint(b.allocator, \"%s{s}.umi\", .{target_tags[i]})", c.moduleName)},
+			"dylib_symlinks": false
+		}
+	}
+
+	if c.b.data.installDir == ""{
+		args["dest_dir"] = RawString{".{ .override = .prefix }"}
+	} else {
+		args["dest_dir"] = RawString{sprintf(".{ .override = .{ .custom = %s }}", c.b.serialize(c.b.data.installDir))}
+	}
+	c.b.genCall("addInstallArtifact", c, args)
+	c.b.gen(sprintf("b.getInstallStep().dependOn(&%s.step);", sym))
 }
 
 type Module* = struct {
@@ -342,6 +404,8 @@ fn (b: ^Build) addModule*(source: LazyPath): Module {
 
 fn (m: ^Module) addUMI*(): Compile {
 	m.umi = m.b.addSharedLibrary(m.name + "_umi")
+	m.umi.kind = .umi
+	m.umi.moduleName = m.name
 	m.umi.linkLibC();
 	return m.umi
 }
@@ -356,21 +420,7 @@ fn (m: ^Module) install*() {
 		return
 	}
 
-	sym := sprintf("%s_umi_install", m.name)
-	if m.b.data.symbols[sym].exists { m.b.fatal("symbol exists: " + sym) }
-	m.b.data.symbols[sym] = { exists: true, kind: .install }
-	m.b.gen(sprintf("const %s = ", sym))
-	args := map[str]any{
-		"dest_sub_path": RawString{sprintf("try std.fmt.allocPrint(b.allocator, \"%s{s}.umi\", .{target_tags[i]})", m.name)},
-		"dylib_symlinks": false
-	}
-	if m.b.data.installDir == ""{
-		args["dest_dir"] = RawString{".{ .override = .prefix }"}
-	} else {
-		args["dest_dir"] = RawString{sprintf(".{ .override = .{ .custom = %s }}", m.b.serialize(m.b.data.installDir))}
-	}
-	m.b.genCall("addInstallArtifact", m.umi, args)
-	m.b.gen("b.getInstallStep().dependOn(&os_umi_install.step);")
+	m.umi.install()
 }
 
 fn umc__getTargets(T: ^void, out: ^[]Target)

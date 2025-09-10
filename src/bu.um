@@ -1,3 +1,7 @@
+//~~NOTE
+// This module contains other exported functions for low-level access
+// to the generation API, which are not documented here.
+//~~
 
 import "std.um"
 
@@ -9,7 +13,8 @@ type Symbol = struct {
 	}
 }
 
-type Target = enum(int32) {
+//~~type Target
+type Target* = enum(int32) {
     def
     linux
     linux_musl
@@ -17,6 +22,7 @@ type Target = enum(int32) {
     windows
     emscripten
 }
+//~~
 
 type BuildData = struct {
 	outFile: std::File
@@ -27,13 +33,19 @@ type BuildData = struct {
 	installDir: str
 }
 
+//~~type Build
 type Build* = struct {
+//}
+//~~
 	outPath: str
 	defTarget: Target
 	data: ^BuildData
 }
 
+//~~type Compile
 type Compile* = struct {
+//}
+//~~
 	b: ^Build
 	name: str
 	kind: enum {
@@ -46,15 +58,24 @@ type Compile* = struct {
 	moduleName: str
 }
 
+//~~type LazyPath
+// Represents a path in the source directory.
 type LazyPath* = struct {
 	path: str
 }
+//~~
 
+//~~type RawString
+// String directly output to the generated build.zig
 type RawString* = struct {
 	s: str
 }
+//~~
 
-fn (b: ^Build) fatal(s: str) {
+//~~fn Build.fatal
+// Stops the build process with a message.
+fn (b: ^Build) fatal*(s: str) {
+//~~
 	fprintf(std::stderr(), "fatal: %s\n", s)
 	exit(1)
 }
@@ -63,7 +84,7 @@ fn (b: ^Build) gen*(s: str) {
 	fprintf(b.data.outFile, "%s\n", s);
 }
 
-fn (b: ^Build) genHeader*() {
+fn (b: ^Build) genHeader() {
 	b.gen("const std = @import(\"std\");")
 	// Zig is pretty annyoing with discards. If you discard a value,
 	// but then use it later, it will produce an error.
@@ -106,7 +127,7 @@ fn (b: ^Build) genHeader*() {
 	)
 }
 
-fn (b: ^Build) genFooter*() {
+fn (b: ^Build) genFooter() {
 	b.gen("}\n}")
 }
 
@@ -132,7 +153,10 @@ fn (b: ^Build) sanitizeSymbolName*(n: str): bool {
 	return true
 }
 
+//~~fn Build.path
+// Returns a LazyPath
 fn (b: ^Build) path*(p: str): LazyPath {
+//~~
 	return {p}
 }
 
@@ -207,7 +231,10 @@ fn (b: ^Build) genCall(fName: str, args: ..any) {
 	b.genCallEx("b", fName, args)
 }
 
+//~~fn Build.forTarget
+// Runs a function only if compiling for target `t`.
 fn (b: ^Build) forTarget*(t: Target, f: fn(b: ^Build)) {
+//~~
 	if t == b.defTarget { t = .def }
 	if !validkey(b.data.targetToIndex, t) { return }
 
@@ -216,7 +243,11 @@ fn (b: ^Build) forTarget*(t: Target, f: fn(b: ^Build)) {
 	b.gen("}")
 }
 
+//~~fn Build.forTargets
+// Runs a function only if compiling for any of the targets. If a building
+// for multiple targets, the function will be run for each of them.
 fn (b: ^Build) forTargets*(targets: []Target, f: fn(b: ^Build)) {
+//~~
 	cond := ""
 	for i,t in targets {
 		if t == b.defTarget { t = .def }
@@ -232,11 +263,15 @@ fn (b: ^Build) forTargets*(targets: []Target, f: fn(b: ^Build)) {
 	b.gen("}")
 }
 
-// TODO: This recursion doesn't seem to be all that correct
+//~~fn Build.include
+// Includes another build function in this build. The source and output
+// directories can be parametrized.
 fn (b: ^Build) include*(f: fn(b: ^Build), par: struct{
 	srcDir: str
 	installDir: str
 }) {
+//~~
+// TODO: This recursion doesn't seem to be all that correct
 	oldData := BuildData{}
 	oldData = b.data^
 	if b.data.srcDir == "" {
@@ -257,12 +292,18 @@ fn (b: ^Build) include*(f: fn(b: ^Build), par: struct{
 	b.data ^= oldData
 }
 
+//~~fn Build.addInstallDirectory
+// Installs a directory `sourceDir` to `installDir`
+//
+// * `excludeExtensions` - if not empty excludes extensions in this array
+// * `includeExtensions` - if not empty, installs only files with extensions in this array
 fn (b: ^Build) addInstallDirectory*(options: struct {
 	sourceDir: LazyPath
 	installDir: str
 	excludeExtensions: []str
 	includeExtensions: []str
 }) {
+//~~
 	opts := map[str]any{}
 	opts["source_dir"] = options.sourceDir
 	opts["install_dir"] = map[str]any{ "custom": options.installDir }
@@ -275,11 +316,21 @@ fn (b: ^Build) addInstallDirectory*(options: struct {
 	b.gen("b.getInstallStep().dependOn(&b.addInstallDirectory(" + b.serialize(opts) + ").step);")
 }
 
+//~~fn Build.addInstallFile
+// Installs a file `source` to path `dest`. `dest` *must* be a full path to
+// the resulting file (not a directory).
 fn (b: ^Build) addInstallFile*(source: LazyPath, dest: str) {
+//~~
+	if dest == "" {
+		b.fatal("destination path cannot be empty")
+	}
 	b.gen("b.getInstallStep().dependOn(&b.addInstallFile(" + b.serialize(source) + ", " + b.serialize(dest) + ").step);")
 }
 
+//~~fn addSystemCommand
+// Runs a system command during the install step.
 fn (b: ^Build) addSystemCommand*(argv: []str) {
+//~~
 	b.gen("b.getInstallStep().dependOn(&b.addSystemCommand(" + b.serialize(argv) + ").step);")
 }
 
@@ -287,7 +338,12 @@ fn (b: ^Build) addSystemCommand*(argv: []str) {
 
 // TODO: b.includeZig
 
+//~~fn Build.addSharedLibrary
+// Creates a shared library.
+//
+// > NOTE: The library has to be installed with the `Compile.install` method.
 fn (b: ^Build) addSharedLibrary*(name: str): Compile {
+//~~
 	if !b.sanitizeSymbolName(name) {
 		b.fatal("invalid symbol name: " + name)
 	}
@@ -311,7 +367,12 @@ fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 	return c
 }
 
+//~~fn Build.addExecutable
+// Creates an executable.
+//
+// > NOTE: The executable has to be installed with the `Compile.install` method.
 fn (b: ^Build) addExecutable*(name: str): Compile {
+//~~
 	if !b.sanitizeSymbolName(name) {
 		b.fatal("invalid symbol name: " + name)
 	}
@@ -335,7 +396,12 @@ fn (b: ^Build) addExecutable*(name: str): Compile {
 	return c
 }
 
+//~~fn Build.addStaticLibrary
+// Creates a shared library.
+//
+// > NOTE: The library has to be installed with the `Compile.install` method.
 fn (b: ^Build) addStaticLibrary*(name: str): Compile {
+//~~
 	if !b.sanitizeSymbolName(name) {
 		b.fatal("invalid symbol name: " + name)
 	}
@@ -364,71 +430,105 @@ fn (c: ^Compile) genCall(fName: str, args: ..any) {
 	c.b.genCallEx(c.b.serialize(c^), fName, args)
 }
 
+//~~fn Compile.addAfterIncludePath
 fn (c: ^Compile) addAfterIncludePath*(path: LazyPath) {
+//~~
 	c.genCall("addAfterIncludePath", path)
 }
 
+//~~fn Compile.addAssemblyFile
 fn (c: ^Compile) addAssemblyFile*(path: LazyPath) {
+//~~
 	c.genCall("addAssemblyFile", path)
 }
 
+//~~fn Compile.addCSourceFile
 fn (c: ^Compile) addCSourceFile*(path: LazyPath, flags: []str = {}) {
+//~~
 	c.genCall("addCSourceFile", map[str]any{ "file": path, "flags": flags })
 }
 
+//~~fn Compile.addFrameworkPath
 fn (c: ^Compile) addFrameworkPath*(directory: LazyPath) {
+//~~
 	c.genCall("addFrameworkPath", directory)
 }
 
+//~~fn Compile.addAfterIncludePath
 fn (c: ^Compile) addIncludePath*(directory: LazyPath) {
+//~~
 	c.genCall("addIncludePath", directory)
 }
 
+//~~fn Compile.addLibraryPath
 fn (c: ^Compile) addLibraryPath*(directory: LazyPath) {
+//~~
 	c.genCall("addLibraryPath", directory)
 }
 
+//~~fn Compile.addObject
 fn (c: ^Compile) addObject*(object: Compile) {
+//~~
 	c.genCall("addObject", object)
 }
 
+//~~fn Compile.addObjectFile
 fn (c: ^Compile) addObjectFile*(file: LazyPath) {
+//~~
 	c.genCall("addObjectFile", file)
 }
 
+//~~fn Compile.addSystemIncludePath
 fn (c: ^Compile) addSystemIncludePath*(directory: LazyPath) {
+//~~
 	c.genCall("addSystemIncludePath", directory)
 }
 
+//~~fn Compile.addSystemLibraryPath
 fn (c: ^Compile) addSystemLibraryPath*(directory: LazyPath) {
+//~~
 	c.genCall("addSystemLibraryPath", directory)
 }
 
+//~~fn Compile.linkLibC
 fn (c: ^Compile) linkLibC*() {
+//~~
 	c.genCall("linkLibC")
 }
 
+//~~fn Compile.linkLibCpp
 fn (c: ^Compile) linkLibCpp*() {
+//~~
 	c.genCall("linkLibCpp")
 }
 
+//~~fn Compile.linkLibrary
 fn (c: ^Compile) linkLibrary*(lib: Compile) {
+//~~
 	c.genCall("linkLibrary", lib)
 }
 
+//~~fn Compile.linkSystemLibrary
 fn (c: ^Compile) linkSystemLibrary*(name: str) {
+//~~
 	c.genCall("linkSystemLibrary", name)
 }
 
+//~~fn Compile.setExecCmd
 fn (c: ^Compile) setExecCmd*(args: ..str) {
+//~~
 	c.genCall("setExecCmd", args)
 }
 
+//~~fn Compile.setVersionScript
 fn (c: ^Compile) setVersionScript*(source: LazyPath) {
+//~~
 	c.genCall("setVersionScript", source)
 }
 
+//~~fn Compile.install
 fn (c: ^Compile) install*() {
+//~~
 	sym := c.name + "_install"
 	if c.b.data.symbols[sym].exists { c.b.fatal("symbol exists: " + sym) }
 	c.b.data.symbols[sym] = { exists: true, kind: .install }
@@ -452,14 +552,21 @@ fn (c: ^Compile) install*() {
 	c.b.gen(sprintf("b.getInstallStep().dependOn(&%s.step);", sym))
 }
 
+//~~type Module
 type Module* = struct {
+//~~
 	b: ^Build
 	name: str
 	source: LazyPath
 	umi: Compile
 }
 
+//~~fn addModule
+// Creates an umka module.
+//
+// > NOTE: The module has to be installed with the `Module.install` method.
 fn (b: ^Build) addModule*(source: LazyPath): Module {
+//~~
 	m := Module{}
 	m.b = b
 	m.source = source
@@ -483,7 +590,11 @@ fn (b: ^Build) addModule*(source: LazyPath): Module {
 	return m
 }
 
+//~~fn Module.addUMI
+// Add an UMI library to the module and return its Compile struct. The library
+// is installed automatically with the module.
 fn (m: ^Module) addUMI*(): Compile {
+//~~
 	m.umi = m.b.addSharedLibrary(m.name + "_umi")
 	m.umi.kind = .umi
 	m.umi.moduleName = m.name
@@ -491,7 +602,10 @@ fn (m: ^Module) addUMI*(): Compile {
 	return m.umi
 }
 
+//~~fn Module.install
+// Install the module and its UMI (if any).
 fn (m: ^Module) install*() {
+//~~
 	m.b.genCall("installFile",
 		m.b.resolveSrcPath(m.source.path),
 		m.b.resolveInstallPath(m.name + ".um")

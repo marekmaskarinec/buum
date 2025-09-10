@@ -1,18 +1,20 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const zigArchive = @embedFile("zig-" ++
+const zigName =
+    "zig-" ++
     @tagName(builtin.cpu.arch) ++
     "-" ++
     @tagName(builtin.os.tag) ++
     "-" ++
-    builtin.zig_version_string ++
-    ".tar.xz");
+    builtin.zig_version_string;
+const zigArchive = @embedFile(zigName ++ if (builtin.target.os.tag == .windows) ".zip" else ".tar.xz");
 
-pub fn unrollZig(allocator: std.mem.Allocator, path: []const u8) !void {
-    const dir = try std.fs.cwd().makeOpenPath(path, .{});
-    if (dir.access("LICENSE", .{})) {
-        return;
+pub fn unrollZig(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    var dir = try std.fs.cwd().makeOpenPath(path, .{});
+    defer dir.close();
+    if (dir.access(zigName, .{})) {
+        return std.fs.path.join(allocator, &.{ path, zigName });
     } else |err| {
         if (err != error.FileNotFound)
             return err;
@@ -25,6 +27,17 @@ pub fn unrollZig(allocator: std.mem.Allocator, path: []const u8) !void {
     const arena = arena_impl.allocator();
 
     var stream = std.io.fixedBufferStream(zigArchive);
-    var decompressor = try std.compress.xz.decompress(arena, stream.reader());
-    try std.tar.pipeToFileSystem(dir, decompressor.reader(), .{ .strip_components = 1 });
+    if (builtin.target.os.tag == .windows) {
+        // This is a workaround because dir.access doesn't seem to work on Windows properly.
+        std.zip.extract(dir, stream.seekableStream(), .{}) catch |err| {
+            if (err == error.PathAlreadyExists)
+                return std.fs.path.join(allocator, &.{ path, zigName });
+            return err;
+        };
+    } else {
+        var decompressor = try std.compress.xz.decompress(arena, stream.reader());
+        try std.tar.pipeToFileSystem(dir, decompressor.reader(), .{});
+    }
+
+    return std.fs.path.join(allocator, &.{ path, zigName });
 }

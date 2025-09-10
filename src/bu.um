@@ -231,6 +231,7 @@ fn (b: ^Build) forTargets*(targets: []Target, f: fn(b: ^Build)) {
 	b.gen("}")
 }
 
+// TODO: This recursion doesn't seem to be all that correct
 fn (b: ^Build) include*(f: fn(b: ^Build), par: struct{
 	srcDir: str
 	installDir: str

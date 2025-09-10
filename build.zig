@@ -23,6 +23,7 @@ const umka_c_flags = [_][]const u8{
     "-malign-double",
     "-fno-strict-aliasing",
     "-DUMKA_EXT_LIBS",
+    "-DUMKA_STATIC",
     "-fno-sanitize=all",
 };
 

@@ -141,12 +141,12 @@ fn getDefaultZigDir(allocator: std.mem.Allocator) ![]u8 {
     if (builtin.os.tag == .windows) {
         const app_data = try std.process.getEnvVarOwned(allocator, "LocalAppData");
         defer allocator.free(app_data);
-        return std.fs.path.join(allocator, &.{ app_data, "buum", "zig" });
+        return std.fs.path.join(allocator, &.{ app_data, "buum" });
     }
 
     const home = try std.process.getEnvVarOwned(allocator, "HOME");
     defer allocator.free(home);
-    return std.fs.path.join(allocator, &.{ home, ".cache", "buum", "zig" });
+    return std.fs.path.join(allocator, &.{ home, ".cache", "buum" });
 }
 
 fn getZigBinPath(allocator: std.mem.Allocator, zig_path: []const u8) ![]u8 {
@@ -163,7 +163,8 @@ pub fn main() !void {
     targets = std.ArrayList(Target).init(gpa);
     defer targets.deinit();
 
-    var args = std.process.args();
+    var args = try std.process.argsWithAllocator(gpa);
+    defer args.deinit();
     _ = args.next();
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "-C")) {
@@ -232,12 +233,13 @@ pub fn main() !void {
         return;
     }
 
-    const zig_path: []const u8 = if (opt_zig_path) |p| p else try getDefaultZigDir(gpa);
+    var zig_path: []const u8 = if (opt_zig_path) |p| p else try getDefaultZigDir(gpa);
     defer if (opt_zig_path == null) gpa.free(zig_path);
+
+    zig_path = try emb.unrollZig(gpa, zig_path);
+    defer gpa.free(zig_path);
     const zig_bin_path = try getZigBinPath(gpa, zig_path);
     defer gpa.free(zig_bin_path);
-
-    try emb.unrollZig(gpa, zig_path);
     const ec = try runBuildZig(gpa, zig_bin_path, build_zig_path);
 
     if (!keep_build_zig)

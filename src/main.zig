@@ -83,8 +83,10 @@ fn runBuildUm() ![]const u8 {
     };
 
     const instance = try umka.Instance.alloc();
-    try instance.init("build.um", null, .{});
-    errdefer handleError("Umka", instance);
+    instance.init("build.um", null, .{}) catch |err| {
+        handleError("Init", instance);
+        return err;
+    };
     defer instance.free();
     std.debug.assert(instance.alive());
 
@@ -92,7 +94,10 @@ fn runBuildUm() ![]const u8 {
 
     try instance.addFunc("umc__getTargets", &umc__getTargets);
 
-    try instance.compile();
+    instance.compile() catch |err| {
+        handleError("Compile", instance);
+        return err;
+    };
 
     var build: Build = .{
         .outPath = "build.zig",
@@ -105,17 +110,26 @@ fn runBuildUm() ![]const u8 {
     var deinitFunc = try instance.getFunc("bu.um", "__deinit");
 
     initFunc.setParameters(&.{.{ .ptr = &build }});
-    try initFunc.call();
+    initFunc.call() catch |err| {
+        handleError("Runtime", instance);
+        return err;
+    };
     var ec = initFunc.getResult().int;
     if (ec != 0) {
         std.log.err("Initializing build failed with code {d}", .{ec});
     }
 
     func.setParameters(&.{.{ .ptr = &build }});
-    try func.call();
+    func.call() catch |err| {
+        handleError("Runtime", instance);
+        return err;
+    };
 
     deinitFunc.setParameters(&.{.{ .ptr = &build }});
-    try deinitFunc.call();
+    deinitFunc.call() catch |err| {
+        handleError("Runtime", instance);
+        return err;
+    };
     ec = deinitFunc.getResult().int;
     if (ec != 0) {
         std.log.err("Deinitializing build failed with code {d}", .{ec});

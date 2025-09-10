@@ -101,6 +101,7 @@ fn (b: ^Build) genHeader*() {
 			"const optimize = b.standardOptimizeOption(.{});\n" +
 			"for (targets, 0..) |target,i| {\n" +
 			"  __discard(@ptrCast(&target));\n" +
+			"  __discard(@ptrCast(&optimize));\n" +
 			"  __discard(@ptrCast(&i));\n"
 	)
 }
@@ -177,7 +178,7 @@ fn (b: ^Build) serialize(a: any): str {
 	case []str:
 		out := "&[_][]const u8{"
 		for i,s in v {
-			out += b.serialize(s)
+			out += b.serialize(s) + ","
 		}
 		return out + "}"
 	case Compile:
@@ -256,14 +257,35 @@ fn (b: ^Build) include*(f: fn(b: ^Build), par: struct{
 	b.data ^= oldData
 }
 
+fn (b: ^Build) addInstallDirectory*(options: struct {
+	sourceDir: LazyPath
+	installDir: str
+	excludeExtensions: []str
+	includeExtensions: []str
+}) {
+	opts := map[str]any{}
+	opts["source_dir"] = options.sourceDir
+	opts["install_dir"] = map[str]any{ "custom": options.installDir }
+	opts["install_subdir"] = ""
+	if len(options.excludeExtensions) > 0 {
+		opts["exclude_extensions"] = options.excludeExtensions
+		opts["include_extensions"] = options.includeExtensions
+	}
+
+	b.gen("b.getInstallStep().dependOn(&b.addInstallDirectory(" + b.serialize(opts) + ").step);")
+}
+
+fn (b: ^Build) addInstallFile*(source: LazyPath, dest: str) {
+	b.gen("b.getInstallStep().dependOn(&b.addInstallFile(" + b.serialize(source) + ", " + b.serialize(dest) + ").step);")
+}
+
+fn (b: ^Build) addSystemCommand*(argv: []str) {
+	b.gen("b.getInstallStep().dependOn(&b.addSystemCommand(" + b.serialize(argv) + ").step);")
+}
+
 // TODO: b.platStr
 
 // TODO: b.includeZig
-
-fn (c: ^Compile) genCall(fName: str, args: ..any) {
-// TODO: Compile.install
-	c.b.genCallEx(c.b.serialize(c^), fName, args)
-}
 
 fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 	if !b.sanitizeSymbolName(name) {
@@ -335,6 +357,11 @@ fn (b: ^Build) addStaticLibrary*(name: str): Compile {
 	// TODO: Solve optimize at higher level
 	b.gen(sprintf("const %s = b.addStaticLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
 	return c
+}
+
+fn (c: ^Compile) genCall(fName: str, args: ..any) {
+// TODO: Compile.install
+	c.b.genCallEx(c.b.serialize(c^), fName, args)
 }
 
 fn (c: ^Compile) addAfterIncludePath*(path: LazyPath) {

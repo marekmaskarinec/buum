@@ -18,7 +18,8 @@ Precompiled binaries can be downloaded from [CI artifacts]().
 ## Usage
 
 Proper usage guide is work in progress. You can refer to the usage in
-[tophat2d](https://github.com/tophat2d/tophat/blob/main/build.um) or [umlibs].
+[tophat2d](https://github.com/tophat2d/tophat/blob/main/build.um) or
+[mmul](https://github.com/mmul/blob/master/build.um).
 
 * [API Documentation](https://mmq.cz/dl/buum.html)
 

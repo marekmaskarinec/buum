@@ -41,7 +41,7 @@ fn printHelpAndExit(status: u8) void {
     std.io.getStdErr().writeAll("buum - an Umka builder\n" ++
         "\t-C <dir>\t-- change root directory\n" ++
         "\t-t <targets>\t-- set build targets\n" ++
-        "\t-z <path>\t-- path to zig install directory\n" ++
+        "\t-c <path>\t-- path to global cache directory\n" ++
         "\t-k\t-- keep build.zig\n" ++
         "\t-g\t-- only generate\n" ++
         "\t-h\t-- show this help message\n") catch {};
@@ -75,9 +75,10 @@ fn getDefTarget() Target {
     };
 }
 
-fn runBuildUm() ![]const u8 {
+fn runBuildUm(gpa: std.mem.Allocator, cache_dir: []const u8) ![]const u8 {
     const Build = extern struct {
         outPath: [*:0]const u8,
+        cacheDir: [*]u8,
         defTarget: Target,
         data: *anyopaque,
     };
@@ -99,8 +100,14 @@ fn runBuildUm() ![]const u8 {
         return err;
     };
 
+    const cache_dirZ = try gpa.alloc(u8, cache_dir.len + 1);
+    defer gpa.free(cache_dirZ);
+    cache_dirZ[cache_dir.len] = 0;
+    std.mem.copyForwards(u8, cache_dirZ, cache_dir);
+
     var build: Build = .{
         .outPath = "build.zig",
+        .cacheDir = (try instance.makeStr(@ptrCast(cache_dirZ))).ptr,
         .defTarget = getDefTarget(),
         .data = undefined,
     };
@@ -151,7 +158,7 @@ fn runBuildZig(gpa: std.mem.Allocator, zig_bin: []const u8, path: []const u8) !u
     };
 }
 
-fn getDefaultZigDir(allocator: std.mem.Allocator) ![]u8 {
+fn getDefaultCacheDir(allocator: std.mem.Allocator) ![]u8 {
     if (builtin.os.tag == .windows) {
         const app_data = try std.process.getEnvVarOwned(allocator, "LocalAppData");
         defer allocator.free(app_data);
@@ -173,7 +180,7 @@ pub fn main() !void {
 
     var gen_only = false;
     var keep_build_zig = false;
-    var opt_zig_path: ?[]const u8 = null;
+    var opt_cache_path: ?[]const u8 = null;
     targets = std.ArrayList(Target).init(gpa);
     defer targets.deinit();
 
@@ -221,11 +228,11 @@ pub fn main() !void {
                 std.log.err("usage: buum -t <target list>", .{});
                 std.process.exit(1);
             }
-        } else if (std.mem.eql(u8, arg, "-z")) {
+        } else if (std.mem.eql(u8, arg, "-c")) {
             if (args.next()) |next| {
-                opt_zig_path = next;
+                opt_cache_path = next;
             } else {
-                std.log.err("usage: buum -z <path>", .{});
+                std.log.err("usage: buum -c <path>", .{});
                 std.process.exit(1);
             }
         } else if (std.mem.eql(u8, arg, "-k")) {
@@ -240,19 +247,18 @@ pub fn main() !void {
         try targets.append(.default);
     }
 
-    const build_zig_path = try runBuildUm();
+    const cache_dir: []const u8 = if (opt_cache_path) |p| p else try getDefaultCacheDir(gpa);
+    defer if (opt_cache_path == null) gpa.free(cache_dir);
+    const build_zig_path = try runBuildUm(gpa, cache_dir);
 
     if (gen_only) {
         std.log.info("Result saved to {s}", .{build_zig_path});
         return;
     }
 
-    var zig_path: []const u8 = if (opt_zig_path) |p| p else try getDefaultZigDir(gpa);
-    defer if (opt_zig_path == null) gpa.free(zig_path);
-
-    zig_path = try emb.unrollZig(gpa, zig_path);
-    defer gpa.free(zig_path);
-    const zig_bin_path = try getZigBinPath(gpa, zig_path);
+    const zig_dir = try emb.unrollZig(gpa, cache_dir);
+    defer gpa.free(zig_dir);
+    const zig_bin_path = try getZigBinPath(gpa, zig_dir);
     defer gpa.free(zig_bin_path);
     const ec = try runBuildZig(gpa, zig_bin_path, build_zig_path);
 

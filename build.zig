@@ -55,6 +55,7 @@ pub fn build(b: *std.Build) void {
         .name = "bu_gen",
         .root_module = exe_mod,
     });
+    exe.root_module.addAnonymousImport("umka_api", .{ .root_source_file = b.path("umka-lang/src/umka_api.h") });
     exe.linkLibrary(umka_lib);
 
     b.installArtifact(exe);

@@ -1,6 +1,6 @@
-//~~NOTE
-// This module contains other exported functions for low-level access
-// to the generation API, which are not documented here.
+//~~bu.um
+// > NOTE: This module contains other exported functions for low-level access
+// > to the generation API, which are not documented here.
 //~~
 
 import "std.um"
@@ -31,6 +31,7 @@ type BuildData = struct {
 	symbols: map[str]Symbol
 	srcDir: str
 	installDir: str
+	cacheDir: str
 }
 
 //~~type Build
@@ -38,6 +39,7 @@ type Build* = struct {
 //}
 //~~
 	outPath: str
+	cacheDir: str
 	defTarget: Target
 	data: ^BuildData
 }
@@ -338,6 +340,11 @@ fn (b: ^Build) addSystemCommand*(argv: []str) {
 
 // TODO: b.includeZig
 
+fn (c: ^Compile) genCall(fName: str, args: ..any) {
+// TODO: Compile.install
+	c.b.genCallEx(c.b.serialize(c^), fName, args)
+}
+
 //~~fn Build.addSharedLibrary
 // Creates a shared library.
 //
@@ -364,6 +371,7 @@ fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 
 	// TODO: Solve optimize at higher level
 	b.gen(sprintf("const %s = b.addSharedLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
+	c.genCall("addSystemIncludePath", RawString{ ".{ .cwd_relative = " + b.serialize(b.data.cacheDir) + "}" })
 	return c
 }
 
@@ -393,6 +401,7 @@ fn (b: ^Build) addExecutable*(name: str): Compile {
 
 	// TODO: Solve optimize at higher level
 	b.gen(sprintf("const %s = b.addExecutable(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
+	c.genCall("addSystemIncludePath", RawString{ ".{ .cwd_relative = " + b.serialize(b.data.cacheDir) + "}" })
 	return c
 }
 
@@ -422,12 +431,8 @@ fn (b: ^Build) addStaticLibrary*(name: str): Compile {
 
 	// TODO: Solve optimize at higher level
 	b.gen(sprintf("const %s = b.addStaticLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
+	c.genCall("addSystemIncludePath", RawString{ ".{ .cwd_relative = " + b.serialize(b.data.cacheDir) + "}" })
 	return c
-}
-
-fn (c: ^Compile) genCall(fName: str, args: ..any) {
-// TODO: Compile.install
-	c.b.genCallEx(c.b.serialize(c^), fName, args)
 }
 
 //~~fn Compile.addAfterIncludePath
@@ -622,6 +627,7 @@ fn umc__getTargets(T: ^void, out: ^[]Target)
 
 fn __init*(b: ^Build): int {
 	b.data = new(BuildData)
+	b.data.cacheDir = b.cacheDir
 
 	if b.outPath == "" {
 		b.data.outFile = std::stdout()

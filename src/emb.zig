@@ -9,6 +9,7 @@ const zigName =
     "-" ++
     builtin.zig_version_string;
 const zigArchive = @embedFile(zigName ++ if (builtin.target.os.tag == .windows) ".zip" else ".tar.xz");
+const umkaApiH = @embedFile("umka_api");
 
 pub fn unrollZig(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     var dir = try std.fs.cwd().makeOpenPath(path, .{});
@@ -38,6 +39,10 @@ pub fn unrollZig(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
         var decompressor = try std.compress.xz.decompress(arena, stream.reader());
         try std.tar.pipeToFileSystem(dir, decompressor.reader(), .{});
     }
+
+    const file = try dir.createFile("umka_api.h", .{});
+    defer file.close();
+    try file.writeAll(umkaApiH);
 
     return std.fs.path.join(allocator, &.{ path, zigName });
 }

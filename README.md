@@ -13,7 +13,10 @@ fn build(b: ^bu::Build) {
 
 ## Downloads
 
-Precompiled binaries can be downloaded from [CI artifacts]().
+Precompiled binaries can be downloaded from CI artifacts:
+
+* [linux](https://nightly.link/marekmaskarinec/buum/workflows/build/master/linux.zip)
+* [windows](https://nightly.link/marekmaskarinec/buum/workflows/build/master/windows.zip)
 
 ## Usage
 

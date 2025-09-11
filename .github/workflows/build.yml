@@ -1,0 +1,29 @@
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    name: Build
+    steps:
+      - run: sudo apt install -y curl
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'true'
+      - run: curl https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz -o src/zig-x86_64-linux-0.14.1.tar.xz
+      - run: curl https://ziglang.org/download/0.14.1/zig-x86_64-windows-0.14.1.zip -o src/zig-x86_64-windows-0.14.1.zip
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+      - run: zig build
+      - run: zig build -Dtarget=x86_64-windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: zig-out/bin/buum
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: zig-out/bin/buum.exe

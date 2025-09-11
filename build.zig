@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) void {
     exe_mod.addImport("umka", umka_dependency.module("wrapper"));
 
     const exe = b.addExecutable(.{
-        .name = "bu_gen",
+        .name = "buum",
         .root_module = exe_mod,
     });
     exe.root_module.addAnonymousImport("umka_api", .{ .root_source_file = b.path("umka-lang/src/umka_api.h") });

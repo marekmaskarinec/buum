@@ -198,6 +198,7 @@ fn (b: ^Build) serialize(a: any): str {
 			} else if c == '\n' { out += "\\n"
 			} else if c == '\t' { out += "\\t"
 			} else if c == '\r' { out += "\\r"
+			} else if c == '\\' { out += "\\\\"
 			} else { out += str(c) }
 		}
 		return "\"" + out + "\""

@@ -41,6 +41,7 @@ fn printHelpAndExit(status: u8) void {
     std.io.getStdErr().writeAll("buum - an Umka builder\n" ++
         "\t-C <dir>\t-- change root directory\n" ++
         "\t-t <targets>\t-- set build targets\n" ++
+        "\t-o <optimize>\t-- set optimization level\n" ++
         "\t-c <path>\t-- path to global cache directory\n" ++
         "\t-k\t-- keep build.zig\n" ++
         "\t-g\t-- only generate\n" ++
@@ -55,6 +56,7 @@ fn onFree(p: [*]umka.StackSlot, r: *umka.StackSlot) callconv(.C) void {
 }
 
 var targets: std.ArrayList(Target) = undefined;
+var optimize_mode: std.builtin.OptimizeMode = .ReleaseSafe;
 
 extern fn umkaMakeDynArray(self: *anyopaque, arr: *anyopaque, type: *umka.Type, size: c_int) callconv(.c) void;
 
@@ -149,7 +151,9 @@ fn runBuildZig(gpa: std.mem.Allocator, zig_bin: []const u8, path: []const u8) !u
     // TODO: Make this basepath(path)/out
     try std.fs.cwd().makePath("buum/out");
 
-    const args = [_][]const u8{ zig_bin, "build", "--build-file", path, "--prefix", "buum/out", "--cache-dir", "buum/cache" };
+    const optimize = try std.fmt.allocPrint(gpa, "-Doptimize={s}", .{@tagName(optimize_mode)});
+    defer gpa.free(optimize);
+    const args = [_][]const u8{ zig_bin, "build", "--build-file", path, "--prefix", "buum/out", "--cache-dir", "buum/cache", optimize };
     var cmd = std.process.Child.init(&args, gpa);
     const term = try std.process.Child.spawnAndWait(&cmd);
     return switch (term) {
@@ -226,6 +230,29 @@ pub fn main() !void {
                 }
             } else {
                 std.log.err("usage: buum -t <target list>", .{});
+                std.process.exit(1);
+            }
+        } else if (std.mem.eql(u8, arg, "-o")) {
+            if (args.next()) |next| {
+                var mode: ?std.builtin.OptimizeMode = null;
+                inline for (std.meta.fields(std.builtin.OptimizeMode)) |f| {
+                    if (std.mem.eql(u8, next, f.name)) {
+                        mode = @enumFromInt(f.value);
+                        break;
+                    }
+                }
+
+                if (mode) |m| {
+                    optimize_mode = m;
+                } else {
+                    std.log.err("unknown mode {s}, available modes: ", .{next});
+                    inline for (std.meta.fields(std.builtin.OptimizeMode)) |f| {
+                        std.log.err("\t{s}", .{f.name});
+                    }
+                    std.process.exit(1);
+                }
+            } else {
+                std.log.err("usage: buum -t <optimization level>", .{});
                 std.process.exit(1);
             }
         } else if (std.mem.eql(u8, arg, "-c")) {

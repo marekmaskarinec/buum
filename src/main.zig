@@ -34,11 +34,11 @@ fn UmkaDynArray(comptime T: type) type {
 
 fn handleError(header: []const u8, inst: umka.Instance) void {
     const err = inst.getError();
-    std.debug.print("{s} Error: {s}:{s}:{d}:{d}: {s}\n", .{ header, err.file_name, err.fn_name, err.line, err.pos, err.msg });
+    std.log.err("{s} Error: {s}:{s}:{d}:{d}: {s}\n", .{ header, err.file_name, err.fn_name, err.line, err.pos, err.msg });
 }
 
-fn printHelpAndExit(status: u8) void {
-    std.io.getStdErr().writeAll("buum - an Umka builder\n" ++
+fn printHelpAndExit(wr: *std.io.Writer, status: u8) void {
+    wr.writeAll("buum - an Umka builder\n" ++
         "\t-C <dir>\t-- change root directory\n" ++
         "\t-t <targets>\t-- set build targets\n" ++
         "\t-o <optimize>\t-- set optimization level\n" ++
@@ -46,6 +46,7 @@ fn printHelpAndExit(status: u8) void {
         "\t-k\t-- keep build.zig\n" ++
         "\t-g\t-- only generate\n" ++
         "\t-h\t-- show this help message\n") catch {};
+    wr.flush() catch {};
     std.process.exit(status);
 }
 
@@ -114,11 +115,11 @@ fn runBuildUm(gpa: std.mem.Allocator, cache_dir: []const u8) ![]const u8 {
         .data = undefined,
     };
 
-    var initFunc = try instance.getFunc("bu.um", "__init");
-    var func = try instance.getFunc("build.um", "build");
-    var deinitFunc = try instance.getFunc("bu.um", "__deinit");
+    var initFunc = if (instance.getFunc("bu.um", "__init")) |f| f else return error.FuncNotFound;
+    var buildFunc = if (instance.getFunc("build.um", "build")) |f| f else return error.FuncNotFound;
+    var deinitFunc = if (instance.getFunc("bu.um", "__deinit")) |f| f else return error.FuncNotFound;
 
-    initFunc.setParameters(&.{.{ .ptr = &build }});
+    initFunc.getParameter(0).ptr = &build;
     initFunc.call() catch |err| {
         handleError("Runtime", instance);
         return err;
@@ -126,15 +127,16 @@ fn runBuildUm(gpa: std.mem.Allocator, cache_dir: []const u8) ![]const u8 {
     var ec = initFunc.getResult().int;
     if (ec != 0) {
         std.log.err("Initializing build failed with code {d}", .{ec});
+        return error.CallInitFailed;
     }
 
-    func.setParameters(&.{.{ .ptr = &build }});
-    func.call() catch |err| {
+    buildFunc.getParameter(0).ptr = &build;
+    buildFunc.call() catch |err| {
         handleError("Runtime", instance);
         return err;
     };
 
-    deinitFunc.setParameters(&.{.{ .ptr = &build }});
+    deinitFunc.getParameter(0).ptr = &build;
     deinitFunc.call() catch |err| {
         handleError("Runtime", instance);
         return err;
@@ -182,11 +184,16 @@ pub fn main() !void {
     var gpa_impl = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = gpa_impl.allocator();
 
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
+    defer stdout.flush() catch {};
+
     var gen_only = false;
     var keep_build_zig = false;
     var opt_cache_path: ?[]const u8 = null;
-    targets = std.ArrayList(Target).init(gpa);
-    defer targets.deinit();
+    targets = try std.ArrayList(Target).initCapacity(gpa, 8);
+    defer targets.deinit(gpa);
 
     var args = try std.process.argsWithAllocator(gpa);
     defer args.deinit();
@@ -205,7 +212,7 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, arg, "-g")) {
             gen_only = true;
         } else if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
-            printHelpAndExit(0);
+            printHelpAndExit(stdout, 0);
         } else if (std.mem.eql(u8, arg, "-t")) {
             if (args.next()) |next| {
                 var iter = std.mem.splitScalar(u8, next, ',');
@@ -219,7 +226,7 @@ pub fn main() !void {
                     }
 
                     if (target) |t| {
-                        try targets.append(t);
+                        try targets.append(gpa, t);
                     } else {
                         std.log.err("unknown target {s}, available targets: ", .{s});
                         inline for (std.meta.fields(Target)) |f| {
@@ -266,12 +273,12 @@ pub fn main() !void {
             keep_build_zig = true;
         } else {
             std.log.err("invalid argument {s}", .{arg});
-            printHelpAndExit(1);
+            printHelpAndExit(stdout, 1);
         }
     }
 
     if (targets.items.len == 0) {
-        try targets.append(.default);
+        try targets.append(gpa, .default);
     }
 
     const cache_dir: []const u8 = if (opt_cache_path) |p| p else try getDefaultCacheDir(gpa);

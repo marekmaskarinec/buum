@@ -31,10 +31,13 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const umka_lib = b.addStaticLibrary(.{
+    const umka_lib = b.addLibrary(.{
         .name = "umka",
-        .target = target,
-        .optimize = optimize,
+        .linkage = .static,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     umka_lib.linkLibC();
     umka_lib.addCSourceFiles(.{

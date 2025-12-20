@@ -30,14 +30,19 @@ pub fn unrollZig(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     var stream = std.io.fixedBufferStream(zigArchive);
     if (builtin.target.os.tag == .windows) {
         // This is a workaround because dir.access doesn't seem to work on Windows properly.
-        std.zip.extract(dir, stream.seekableStream(), .{}) catch |err| {
+        std.zip.extract(dir, stream, .{}) catch |err| {
             if (err == error.PathAlreadyExists)
                 return std.fs.path.join(allocator, &.{ path, zigName });
             return err;
         };
     } else {
         var decompressor = try std.compress.xz.decompress(arena, stream.reader());
-        try std.tar.pipeToFileSystem(dir, decompressor.reader(), .{});
+        var reader = decompressor.reader();
+        // I really don't like this, but using adapters didn't work. Let's just wait until the decompressor uses new io.
+        const data = try reader.readAllAlloc(arena, std.math.maxInt(usize));
+        defer arena.free(data);
+        var reader_new = std.Io.Reader.fixed(data);
+        try std.tar.pipeToFileSystem(dir, &reader_new, .{});
     }
 
     const file = try dir.createFile("umka_api.h", .{});

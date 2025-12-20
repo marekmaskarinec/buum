@@ -28,7 +28,7 @@
 
     // Tracks the earliest Zig version that the package considers to be a
     // supported use case.
-    .minimum_zig_version = "0.14.1",
+    .minimum_zig_version = "0.15.2",
 
     // This field is optional.
     // Each dependency must either provide a `url` and `hash`, or a `path`.
@@ -37,8 +37,8 @@
     // internet connectivity.
     .dependencies = .{
         .umka = .{
-            .url = "https://github.com/TheOnlySilverClaw/zig-umka/archive/f00094af356f1d7c107a20c82e6e82bcf60641e4.tar.gz",
-            .hash = "umka_bind-0.0.1-0YFIK5c9AACZizaPForofE_fJDpMoOdtL9HvmF5R8Usw",
+            .url = "https://github.com/TheOnlySilverClaw/zig-umka/archive/0706a6d409d187ae05427adbaca043e35793f8e8.tar.gz",
+            .hash = "umka_bind-1.0.0-0YFIK5VAAACO1VngvxifOf1LCoqwSA8mirzh64pU9XX1",
         },
     },
     .paths = .{

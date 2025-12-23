@@ -1,0 +1,17 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test_umka:
+    runs-on: ubuntu-22.04
+    name: Test Umka generation
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: curl -fL https://github.com/vtereshkov/umka-lang/releases/download/v1.5.4/umka_1.5.4_linux.zip -o umka_linux.zip
+      - run: unzip umka_linux.zip
+      - run: cd test/gen; UMKA=../../umka_*/umka ./run.sh

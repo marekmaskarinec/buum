@@ -1,0 +1,52 @@
+
+fn umc__getTargets(T: ^void, out: ^[]Target) {}
+
+fn main() {
+	T := toast::newContext()
+	T.registerTest("sanitizeSymbolName", {
+		b := Build{ }
+	
+		ctx.assert.isTrue(b.sanitizeSymbolName("abcd1234"))
+		ctx.assert.isTrue(b.sanitizeSymbolName("abcd"))
+		ctx.assert.isTrue(b.sanitizeSymbolName("_abcd"))
+		ctx.assert.isTrue(b.sanitizeSymbolName("Abcd"))
+		ctx.assert.isFalse(b.sanitizeSymbolName("123Abcd"))
+		ctx.assert.isFalse(b.sanitizeSymbolName("123"))
+		ctx.assert.isFalse(b.sanitizeSymbolName("Abc.def"))
+	})
+
+	T.registerTest("resolveSrcPath", {
+		data := BuildData{}
+		b := Build{ data: &data }
+		
+		data.srcDir = "abc"
+		ctx.assert.isTrue(b.resolveSrcPath("def") == "abc/def")
+		data.srcDir = ""
+		ctx.assert.isTrue(b.resolveSrcPath("def") == "def")
+	})
+
+	T.registerTest("resolveInstallPath", {
+		data := BuildData{}
+		b := Build{ data: &data }
+		
+		data.installDir = "abc"
+		ctx.assert.isTrue(b.resolveInstallPath("def") == "abc/def")
+		data.installDir = ""
+		ctx.assert.isTrue(b.resolveInstallPath("def") == "def")
+	})
+
+	T.registerTest("serialize", {
+		data := BuildData{}
+		b := Build{ data: &data }
+		data.srcDir = "src"
+
+		ctx.assert.isTrue(b.serialize(RawString{ "str" }) == "str")
+		ctx.assert.isTrue(b.serialize(b.path("main.um")) == "b.path(\"src/main.um\")")
+		ctx.assert.isTrue(b.serialize("str") == "\"str\"")
+		ctx.assert.isTrue(b.serialize("st\nr") == "\"st\\nr\"")
+
+		// TODO: test string arrays, Compile
+	})
+	
+	T.run()
+}

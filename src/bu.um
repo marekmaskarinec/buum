@@ -5,6 +5,8 @@
 
 import "std.um"
 
+g_symbolCounter := 0
+
 type Symbol = struct {
 	exists: bool
 	kind: enum{
@@ -588,9 +590,10 @@ fn (c: ^Compile) setVersionScript*(source: LazyPath) {
 
 fn (c: ^Compile) addFileDependency*(source: LazyPath) {
 	c.b.genCallEx(c.name+".root_module", "addAnonymousImport", {
-		sprintf("anonymousImport_%d", std::rand()),
+		sprintf("anonymousImport_%d", g_symbolCounter),
 		map[str]any{"root_module": source}
 	})
+	g_symbolCounter++
 }
 
 //~~fn Compile.install
@@ -623,7 +626,8 @@ fn (c: ^Compile) install*() {
 // Runs a system command during the install step.
 fn (b: ^Build) addSystemCommand*(argv: ..str): Run {
 //~~
-	name := sprintf("systemCommand_%d", std::rand())
+	name := sprintf("systemCommand_%d", g_symbolCounter)
+	g_symbolCounter++
 	b.data.symbols[name] = {
 		exists: true,
 		kind: .run
@@ -652,7 +656,8 @@ fn (r: ^Run) addFileArg*(path: LazyPath) {
 }
 
 fn (r: ^Run) addOutputFileArg*(path: str): LazyPath {
-	name := sprintf("%s_outputFile_%d", r.name, std::rand())
+	name := sprintf("%s_outputFile_%d", r.name, g_symbolCounter)
+	g_symbolCounter++
 	r.b.data.symbols[name] = {
 		exists: true,
 		kind: .lazyPath
@@ -669,7 +674,8 @@ fn (r: ^Run) addOutputFileArg*(path: str): LazyPath {
 }
 
 fn (r: ^Run) captureStdout*(): LazyPath {
-	name := sprintf("%s_outputFile_%d", r.name, std::rand())
+	name := sprintf("%s_outputFile_%d", r.name, g_symbolCounter)
+	g_symbolCounter++
 	r.b.data.symbols[name] = {
 		exists: true,
 		kind: .lazyPath

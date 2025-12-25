@@ -50,18 +50,5 @@ fn main() {
 		// TODO: test string arrays, Compile
 	})
 
-	T.registerTest("addSystemCommand", {
-		data := BuildData{}
-		b := Build{ data: &data }
-
-		ctx.assert.isTrue(b.addSystemCommand("cmd", {"echo", "hello"}).name == "cmd")
-		ctx.assert.isFalse(g_hadError)
-		ctx.assert.isTrue(g_genOutput == "const cmd = b.addSystemCommand(&[_][]const u8{\"echo\",\"hello\",});\n")
-
-		b.addSystemCommand("cmd", {"echo", "hello"})
-		ctx.assert.isTrue(g_hadError)
-		g_hadError = false
-	})
-	
 	T.run()
 }

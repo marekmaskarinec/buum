@@ -28,6 +28,8 @@ type Target* = enum(int32) {
 }
 //~~
 
+//~~type SourceFileLanguage
+// Type of file passed to `addCSourceFile`.
 type SourceFileLanguage* = enum {
 	auto
 	c
@@ -37,6 +39,7 @@ type SourceFileLanguage* = enum {
 	assembly
 	assembly_with_preprocessor
 }
+//~~
 
 fn (lang: ^SourceFileLanguage) toStr*(): str {
 	switch (lang^) {
@@ -647,15 +650,27 @@ fn (r: ^Run) genCall*(fName: str, args: ..any) {
 	r.b.genCallEx(r.b.serialize(r^), fName, args)
 }
 
+//~~fn Run.addArgs
+// Add a list of arguments to a run command.
 fn (r: ^Run) addArgs*(argv: ..str) {
+//~~
 	r.genCall("addArgs", argv)
 }
 
+//~~fn Run.addFileArg
+// Add an argument to a run command. The path is understood as an
+// input file to the command. If the file changes, the command will
+// be re-run.
 fn (r: ^Run) addFileArg*(path: LazyPath) {
+//~~
 	r.genCall("addFileArg", path)
 }
 
+//~~fn Run.addOutputFileArg
+// Add an argument to a run command. The argument is understood as the output
+// file of the command. Returns a `LazyPath` representing the file.
 fn (r: ^Run) addOutputFileArg*(path: str): LazyPath {
+//~~
 	name := sprintf("%s_outputFile_%d", r.name, g_symbolCounter)
 	g_symbolCounter++
 	r.b.data.symbols[name] = {
@@ -673,7 +688,11 @@ fn (r: ^Run) addOutputFileArg*(path: str): LazyPath {
 	}
 }
 
+//~~fn Run.captureStdout
+// Caputures the command stdout. Returns a `LazyPath`, which references a file
+// containing the captured output.
 fn (r: ^Run) captureStdout*(): LazyPath {
+//~~
 	name := sprintf("%s_outputFile_%d", r.name, g_symbolCounter)
 	g_symbolCounter++
 	r.b.data.symbols[name] = {

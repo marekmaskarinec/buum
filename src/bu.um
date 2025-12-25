@@ -9,7 +9,9 @@ type Symbol = struct {
 	exists: bool
 	kind: enum{
 		compile
+		run
 		install
+		lazyPath
 	}
 }
 
@@ -23,6 +25,29 @@ type Target* = enum(int32) {
     emscripten
 }
 //~~
+
+type SourceFileLanguage* = enum {
+	auto
+	c
+	cpp
+	objective_c
+	objective_cpp
+	assembly
+	assembly_with_preprocessor
+}
+
+fn (lang: ^SourceFileLanguage) toStr*(): str {
+	switch (lang^) {
+	case .auto: return "null"
+	case .c: return ".c"
+	case .cpp: return ".cpp"
+	case .objective_c: return ".objective_c"
+	case .objective_cpp: return ".objective_cpp"
+	case .assembly: return ".assembly"
+	case .assembly_with_preprocessor: return ".assembly_with_preprocessor"
+	}
+	return ""
+}
 
 type BuildData = struct {
 	outFile: std::File
@@ -60,10 +85,19 @@ type Compile* = struct {
 	moduleName: str
 }
 
+//~~type Run
+type Run* = struct {
+//}	
+//~~
+	b: ^Build
+	name: str
+}
+
 //~~type LazyPath
 // Represents a path in the source directory.
 type LazyPath* = struct {
 	path: str
+	symbol: bool
 }
 //~~
 
@@ -74,16 +108,31 @@ type RawString* = struct {
 }
 //~~
 
+g_test := false
+g_hadError := false
 //~~fn Build.fatal
 // Stops the build process with a message.
 fn (b: ^Build) fatal*(s: str) {
 //~~
-	fprintf(std::stderr(), "fatal: %s\n", s)
-	exit(1)
+	if g_test {
+		g_hadError = true
+	} else {
+		fprintf(std::stderr(), "fatal: %s\n", s)
+		exit(1)
+	}
 }
 
+g_genOutput := ""
 fn (b: ^Build) gen*(s: str) {
-	fprintf(b.data.outFile, "%s\n", s);
+	if g_test {
+		g_genOutput += sprintf("%s\n", s)
+	} else {
+		fprintf(b.data.outFile, "%s\n", s)
+	}
+}
+
+fn (b: ^Build) genDiscard(sym: str) {
+	b.gen(sprintf("__discard(@ptrCast(&%s));", sym))
 }
 
 fn (b: ^Build) genHeader() {
@@ -159,7 +208,7 @@ fn (b: ^Build) sanitizeSymbolName*(n: str): bool {
 // Returns a LazyPath
 fn (b: ^Build) path*(p: str): LazyPath {
 //~~
-	return {p}
+	return {path: p, symbol: false}
 }
 
 fn (b: ^Build) resolveSrcPath(p: str): str {
@@ -181,7 +230,11 @@ fn (b: ^Build) resolveInstallPath(p: str): str {
 fn (b: ^Build) serialize(a: any): str {
 	switch v := type(a) {
 	case RawString: return v.s
+	case SourceFileLanguage: return v.toStr()
 	case LazyPath:
+		if v.symbol {
+			return v.path
+		}
 		return "b.path(" + b.serialize(b.resolveSrcPath(v.path)) + ")"
 	case map[str]any:
 		out := ".{"
@@ -212,6 +265,11 @@ fn (b: ^Build) serialize(a: any): str {
 		sym := b.data.symbols[v.name] 
 		if !sym.exists { b.fatal("unknown Compile: " + v.name) }
 		if sym.kind != .compile { b.fatal(v.name + " is not of type Compile") }
+		return v.name
+	case Run:
+		sym := b.data.symbols[v.name] 
+		if !sym.exists { b.fatal("unknown Run: " + v.name) }
+		if sym.kind != .run { b.fatal(v.name + " is not of type Run") }
 		return v.name
 	}
 
@@ -330,13 +388,6 @@ fn (b: ^Build) addInstallFile*(source: LazyPath, dest: str) {
 	b.gen("b.getInstallStep().dependOn(&b.addInstallFile(" + b.serialize(source) + ", " + b.serialize(dest) + ").step);")
 }
 
-//~~fn addSystemCommand
-// Runs a system command during the install step.
-fn (b: ^Build) addSystemCommand*(argv: []str) {
-//~~
-	b.gen("b.getInstallStep().dependOn(&b.addSystemCommand(" + b.serialize(argv) + ").step);")
-}
-
 // TODO: b.platStr
 
 // TODO: b.includeZig
@@ -372,6 +423,7 @@ fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 
 	// TODO: Solve optimize at higher level
 	b.gen(sprintf("const %s = b.addSharedLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
+	b.genDiscard(name)
 	c.genCall("addSystemIncludePath", RawString{ ".{ .cwd_relative = " + b.serialize(b.data.cacheDir) + "}" })
 	return c
 }
@@ -402,6 +454,7 @@ fn (b: ^Build) addExecutable*(name: str): Compile {
 
 	// TODO: Solve optimize at higher level
 	b.gen(sprintf("const %s = b.addExecutable(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
+	b.genDiscard(name)
 	c.genCall("addSystemIncludePath", RawString{ ".{ .cwd_relative = " + b.serialize(b.data.cacheDir) + "}" })
 	return c
 }
@@ -432,6 +485,7 @@ fn (b: ^Build) addStaticLibrary*(name: str): Compile {
 
 	// TODO: Solve optimize at higher level
 	b.gen(sprintf("const %s = b.addStaticLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
+	b.genDiscard(name)
 	c.genCall("addSystemIncludePath", RawString{ ".{ .cwd_relative = " + b.serialize(b.data.cacheDir) + "}" })
 	return c
 }
@@ -449,9 +503,9 @@ fn (c: ^Compile) addAssemblyFile*(path: LazyPath) {
 }
 
 //~~fn Compile.addCSourceFile
-fn (c: ^Compile) addCSourceFile*(path: LazyPath, flags: []str = {}) {
+fn (c: ^Compile) addCSourceFile*(path: LazyPath, flags: []str = {}, language: SourceFileLanguage = .auto) {
 //~~
-	c.genCall("addCSourceFile", map[str]any{ "file": path, "flags": flags })
+	c.genCall("addCSourceFile", map[str]any{ "file": path, "flags": flags, "language": language })
 }
 
 //~~fn Compile.addFrameworkPath
@@ -532,6 +586,13 @@ fn (c: ^Compile) setVersionScript*(source: LazyPath) {
 	c.genCall("setVersionScript", source)
 }
 
+fn (c: ^Compile) addFileDependency*(source: LazyPath) {
+	c.b.genCallEx(c.name+".root_module", "addAnonymousImport", {
+		sprintf("anonymousImport_%d", std::rand()),
+		map[str]any{"root_module": source}
+	})
+}
+
 //~~fn Compile.install
 fn (c: ^Compile) install*() {
 //~~
@@ -556,6 +617,72 @@ fn (c: ^Compile) install*() {
 	}
 	c.b.genCall("addInstallArtifact", c, args)
 	c.b.gen(sprintf("b.getInstallStep().dependOn(&%s.step);", sym))
+}
+
+//~~fn addSystemCommand
+// Runs a system command during the install step.
+fn (b: ^Build) addSystemCommand*(argv: ..str): Run {
+//~~
+	name := sprintf("systemCommand_%d", std::rand())
+	b.data.symbols[name] = {
+		exists: true,
+		kind: .run
+	}
+
+	r := Run {
+		b: b,
+		name: name
+	}
+
+	b.gen(sprintf("const %s = b.addSystemCommand(%s);", name, b.serialize(argv)))
+
+	return r
+}
+
+fn (r: ^Run) genCall*(fName: str, args: ..any) {
+	r.b.genCallEx(r.b.serialize(r^), fName, args)
+}
+
+fn (r: ^Run) addArgs*(argv: ..str) {
+	r.genCall("addArgs", argv)
+}
+
+fn (r: ^Run) addFileArg*(path: LazyPath) {
+	r.genCall("addFileArg", path)
+}
+
+fn (r: ^Run) addOutputFileArg*(path: str): LazyPath {
+	name := sprintf("%s_outputFile_%d", r.name, std::rand())
+	r.b.data.symbols[name] = {
+		exists: true,
+		kind: .lazyPath
+	}
+
+	r.b.gen(sprintf("const %s = ", name))
+	r.genCall("addOutputFileArg", path)
+	r.b.genDiscard(name)
+
+	return {
+		symbol: true,
+		path: name
+	}
+}
+
+fn (r: ^Run) captureStdout*(): LazyPath {
+	name := sprintf("%s_outputFile_%d", r.name, std::rand())
+	r.b.data.symbols[name] = {
+		exists: true,
+		kind: .lazyPath
+	}
+
+	r.b.gen(sprintf("const %s = ", name))
+	r.genCall("captureStdOut")
+	r.b.genDiscard(name)
+
+	return {
+		symbol: true,
+		path: name
+	}
 }
 
 //~~type Module

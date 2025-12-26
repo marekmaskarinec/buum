@@ -196,8 +196,7 @@ pub fn main() !void {
                     std.process.exit(1);
                 };
             } else {
-                std.log.err("usage: buum -C <directory>", .{});
-                std.process.exit(1);
+                fatal("usage: buum -C <directory>", .{});
             }
         } else if (std.mem.eql(u8, arg, "-g")) {
             gen_only = true;
@@ -226,8 +225,7 @@ pub fn main() !void {
                     }
                 }
             } else {
-                std.log.err("usage: buum -t <target list>", .{});
-                std.process.exit(1);
+                fatal("usage: buum -t <target list>", .{});
             }
         } else if (std.mem.eql(u8, arg, "-o")) {
             if (args.next()) |next| {
@@ -249,15 +247,13 @@ pub fn main() !void {
                     std.process.exit(1);
                 }
             } else {
-                std.log.err("usage: buum -t <optimization level>", .{});
-                std.process.exit(1);
+                fatal("usage: buum -t <optimization level>", .{});
             }
         } else if (std.mem.eql(u8, arg, "-c")) {
             if (args.next()) |next| {
                 opt_cache_path = next;
             } else {
-                std.log.err("usage: buum -c <path>", .{});
-                std.process.exit(1);
+                fatal("usage: buum -c <path>", .{});
             }
         } else if (std.mem.eql(u8, arg, "-k")) {
             keep_build_zig = true;

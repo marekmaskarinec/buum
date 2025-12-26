@@ -57,8 +57,8 @@ fn onFree(p: [*]umka.StackSlot, r: *umka.StackSlot) callconv(.C) void {
     std.log.warn("Free", .{});
 }
 
-var targets: std.ArrayList(Target) = undefined;
-var optimize_mode: std.builtin.OptimizeMode = .ReleaseSafe;
+var g_targets: std.ArrayList(Target) = undefined;
+var g_optimize_mode: std.builtin.OptimizeMode = .ReleaseSafe;
 
 extern fn umkaMakeDynArray(self: *anyopaque, arr: *anyopaque, type: *umka.Type, size: c_int) callconv(.c) void;
 
@@ -66,8 +66,8 @@ fn umc__getTargets(params: [*]umka.StackSlot, result: *umka.StackSlot) callconv(
     const typeptr: *umka.Type = params[1].ptr;
     const arr: *UmkaDynArray(Target) = @ptrCast(@alignCast(params[0].ptr));
 
-    umkaMakeDynArray(result.ptr, @ptrCast(arr), typeptr, @intCast(targets.items.len));
-    std.mem.copyForwards(Target, arr.slice(), targets.items);
+    umkaMakeDynArray(result.ptr, @ptrCast(arr), typeptr, @intCast(g_targets.items.len));
+    std.mem.copyForwards(Target, arr.slice(), g_targets.items);
 }
 
 fn getDefTarget() Target {
@@ -148,7 +148,7 @@ fn runBuildZig(gpa: std.mem.Allocator, zig_bin: []const u8, path: []const u8) !u
     // TODO: Make this basepath(path)/out
     try std.fs.cwd().makePath("buum/out");
 
-    const optimize = try std.fmt.allocPrint(gpa, "-Doptimize={s}", .{@tagName(optimize_mode)});
+    const optimize = try std.fmt.allocPrint(gpa, "-Doptimize={s}", .{@tagName(g_optimize_mode)});
     defer gpa.free(optimize);
     const args = [_][]const u8{ zig_bin, "build", "--build-file", path, "--prefix", "buum/out", "--cache-dir", "buum/cache", optimize };
     var cmd = std.process.Child.init(&args, gpa);
@@ -182,8 +182,8 @@ pub fn main() !void {
     var gen_only = false;
     var keep_build_zig = false;
     var opt_cache_path: ?[]const u8 = null;
-    targets = std.ArrayList(Target).init(gpa);
-    defer targets.deinit();
+    g_targets = std.ArrayList(Target).init(gpa);
+    defer g_targets.deinit();
 
     var args = try std.process.argsWithAllocator(gpa);
     defer args.deinit();
@@ -216,7 +216,7 @@ pub fn main() !void {
                     }
 
                     if (target) |t| {
-                        try targets.append(t);
+                        try g_targets.append(t);
                     } else {
                         std.log.err("unknown target {s}, available targets: ", .{s});
                         inline for (std.meta.fields(Target)) |f| {
@@ -240,7 +240,7 @@ pub fn main() !void {
                 }
 
                 if (mode) |m| {
-                    optimize_mode = m;
+                    g_optimize_mode = m;
                 } else {
                     std.log.err("unknown mode {s}, available modes: ", .{next});
                     inline for (std.meta.fields(std.builtin.OptimizeMode)) |f| {
@@ -267,8 +267,8 @@ pub fn main() !void {
         }
     }
 
-    if (targets.items.len == 0) {
-        try targets.append(.default);
+    if (g_targets.items.len == 0) {
+        try g_targets.append(.default);
     }
 
     const cache_dir: []const u8 = if (opt_cache_path) |p| p else try getDefaultCacheDir(gpa);

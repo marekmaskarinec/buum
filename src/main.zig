@@ -5,6 +5,8 @@ const emb = @import("emb.zig");
 
 const bu_um = @embedFile("bu.um");
 
+const fatal = std.process.fatal;
+
 const Target = enum(c_int) {
     default = 0,
     linux = 1,
@@ -34,7 +36,7 @@ fn UmkaDynArray(comptime T: type) type {
 
 fn handleError(header: []const u8, inst: umka.Instance) void {
     const err = inst.getError();
-    std.debug.print("{s} Error: {s}:{s}:{d}:{d}: {s}\n", .{ header, err.file_name, err.fn_name, err.line, err.pos, err.msg });
+    fatal("{s}: {s}:{s}:{d}:{d}: {s}\n", .{ header, err.file_name, err.fn_name, err.line, err.pos, err.msg });
 }
 
 fn printHelpAndExit(status: u8) void {
@@ -86,9 +88,8 @@ fn runBuildUm(gpa: std.mem.Allocator, cache_dir: []const u8) ![]const u8 {
     };
 
     const instance = try umka.Instance.alloc();
-    instance.init("build.um", null, .{}) catch |err| {
-        handleError("Init", instance);
-        return err;
+    instance.init("build.um", null, .{}) catch {
+        handleError("init", instance);
     };
     defer instance.free();
     std.debug.assert(instance.alive());
@@ -97,9 +98,8 @@ fn runBuildUm(gpa: std.mem.Allocator, cache_dir: []const u8) ![]const u8 {
 
     try instance.addFunc("umc__getTargets", &umc__getTargets);
 
-    instance.compile() catch |err| {
-        handleError("Compile", instance);
-        return err;
+    instance.compile() catch {
+        handleError("compile", instance);
     };
 
     const cache_dirZ = try gpa.alloc(u8, cache_dir.len + 1);
@@ -119,9 +119,8 @@ fn runBuildUm(gpa: std.mem.Allocator, cache_dir: []const u8) ![]const u8 {
     var deinitFunc = try instance.getFunc("bu.um", "__deinit");
 
     initFunc.setParameters(&.{.{ .ptr = &build }});
-    initFunc.call() catch |err| {
-        handleError("Runtime", instance);
-        return err;
+    initFunc.call() catch {
+        handleError("runtime", instance);
     };
     var ec = initFunc.getResult().int;
     if (ec != 0) {
@@ -129,15 +128,13 @@ fn runBuildUm(gpa: std.mem.Allocator, cache_dir: []const u8) ![]const u8 {
     }
 
     func.setParameters(&.{.{ .ptr = &build }});
-    func.call() catch |err| {
-        handleError("Runtime", instance);
-        return err;
+    func.call() catch {
+        handleError("runtime", instance);
     };
 
     deinitFunc.setParameters(&.{.{ .ptr = &build }});
-    deinitFunc.call() catch |err| {
-        handleError("Runtime", instance);
-        return err;
+    deinitFunc.call() catch {
+        handleError("runtime", instance);
     };
     ec = deinitFunc.getResult().int;
     if (ec != 0) {
@@ -158,7 +155,7 @@ fn runBuildZig(gpa: std.mem.Allocator, zig_bin: []const u8, path: []const u8) !u
     const term = try std.process.Child.spawnAndWait(&cmd);
     return switch (term) {
         .Exited => |ec| ec,
-        else => error{InvalidTerm}.InvalidTerm,
+        else => 127,
     };
 }
 
@@ -288,6 +285,8 @@ pub fn main() !void {
     const zig_bin_path = try getZigBinPath(gpa, zig_dir);
     defer gpa.free(zig_bin_path);
     const ec = try runBuildZig(gpa, zig_bin_path, build_zig_path);
+    if (ec != 0)
+        std.log.err("`zig build` failed with code {}", .{ec});
 
     if (!keep_build_zig)
         try std.fs.cwd().deleteFile(build_zig_path);

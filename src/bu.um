@@ -68,6 +68,7 @@ type BuildData = struct {
 type Build* = struct {
 //}
 //~~
+	buumBinPath: str
 	outPath: str
 	cacheDir: str
 	defTarget: Target
@@ -648,6 +649,28 @@ fn (b: ^Build) addSystemCommand*(argv: ..str): Run {
 
 fn (r: ^Run) genCall*(fName: str, args: ..any) {
 	r.b.genCallEx(r.b.serialize(r^), fName, args)
+}
+
+//~~fn Build.addUmkaScript
+fn (b: ^Build) addUmkaScript*(file: LazyPath, argv: ..str): Run {
+//~~
+	name := sprintf("systemCommand_%d", g_symbolCounter)
+	g_symbolCounter++
+	b.data.symbols[name] = {
+		exists: true,
+		kind: .run
+	}
+
+	r := Run {
+		b: b,
+		name: name
+	}
+
+	b.gen(sprintf("const %s = b.addSystemCommand(%s);", name, b.serialize([]str{ b.buumBinPath, "umka" })))
+	r.genCall("addFileArg", file)
+	r.genCall("addArgs", argv)
+
+	return r
 }
 
 //~~fn Run.addArgs

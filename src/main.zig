@@ -88,7 +88,7 @@ fn runBuildUm(gpa: std.mem.Allocator, cache_dir: []const u8) ![]const u8 {
     };
 
     const instance = try umka.Instance.alloc();
-    instance.init("build.um", null, .{}) catch {
+    instance.init("build.um", null, .{ .impl_libs_enabled = false }) catch {
         handleError("init", instance);
     };
     defer instance.free();

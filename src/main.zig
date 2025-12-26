@@ -47,7 +47,8 @@ fn printHelpAndExit(status: u8) void {
         "\t-c <path>\t-- path to global cache directory\n" ++
         "\t-k\t-- keep build.zig\n" ++
         "\t-g\t-- only generate\n" ++
-        "\t-h\t-- show this help message\n") catch {};
+        "\t-h\t-- show this help message\n" ++
+        "\tumka <file>\t-- run Umka script\n") catch {};
     std.process.exit(status);
 }
 
@@ -76,6 +77,30 @@ fn getDefTarget() Target {
         .emscripten => .emscripten,
         .linux => if (builtin.target.abi.isGnu()) .linux_glibc else .linux_musl,
         else => .def,
+    };
+}
+
+fn runUmka(gpa: std.mem.Allocator, file: [:0]const u8, args: *std.process.ArgIterator) !void {
+    var args_list = try std.ArrayList([*:0]const u8).initCapacity(gpa, 16);
+    defer args_list.deinit();
+    try args_list.append(file);
+    while (args.next()) |arg| {
+        try args_list.append(arg);
+    }
+
+    const instance = try umka.Instance.alloc();
+    instance.init(file, null, .{ .args = args_list.items }) catch {
+        handleError("init", instance);
+    };
+    defer instance.free();
+    std.debug.assert(instance.alive());
+
+    instance.compile() catch {
+        handleError("compile", instance);
+    };
+
+    instance.run() catch {
+        handleError("runtime", instance);
     };
 }
 
@@ -257,6 +282,13 @@ pub fn main() !void {
             }
         } else if (std.mem.eql(u8, arg, "-k")) {
             keep_build_zig = true;
+        } else if (std.mem.eql(u8, arg, "umka")) {
+            if (args.next()) |next| {
+                try runUmka(gpa, next, &args);
+                return;
+            } else {
+                fatal("usage: buum umka <file>", .{});
+            }
         } else {
             std.log.err("invalid argument {s}", .{arg});
             printHelpAndExit(1);

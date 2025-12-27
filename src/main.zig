@@ -277,7 +277,7 @@ pub fn main() !void {
                     std.process.exit(1);
                 }
             } else {
-                fatal("usage: buum -t <optimization level>", .{});
+                fatal("usage: buum -o <optimization level>", .{});
             }
         } else if (std.mem.eql(u8, arg, "-c")) {
             if (args.next()) |next| {

@@ -60,7 +60,6 @@ fn onFree(p: [*]umka.StackSlot, r: *umka.StackSlot) callconv(.C) void {
 
 var g_targets: std.ArrayList(Target) = undefined;
 var g_optimize_mode: std.builtin.OptimizeMode = .ReleaseSafe;
-var g_bin_path: []const u8 = undefined;
 
 extern fn umkaMakeDynArray(self: *anyopaque, arr: *anyopaque, type: *umka.Type, size: c_int) callconv(.c) void;
 
@@ -129,15 +128,13 @@ fn runBuildUm(gpa: std.mem.Allocator, cache_dir: []const u8) ![]const u8 {
         handleError("compile", instance);
     };
 
-    const cache_dirZ = try gpa.alloc(u8, cache_dir.len + 1);
+    const cache_dirZ = try gpa.dupeZ(u8, cache_dir);
     defer gpa.free(cache_dirZ);
-    cache_dirZ[cache_dir.len] = 0;
-    std.mem.copyForwards(u8, cache_dirZ, cache_dir);
 
-    const bin_pathZ = try gpa.alloc(u8, g_bin_path.len + 1);
+    const bin_path = try std.fs.selfExePathAlloc(gpa);
+    defer gpa.free(bin_path);
+    const bin_pathZ = try gpa.dupeZ(u8, bin_path);
     defer gpa.free(bin_pathZ);
-    bin_pathZ[g_bin_path.len] = 0;
-    std.mem.copyForwards(u8, bin_pathZ, g_bin_path);
 
     var build: Build = .{
         .buumBinPath = @ptrCast((try instance.makeStr(@ptrCast(bin_pathZ))).ptr),
@@ -220,7 +217,7 @@ pub fn main() !void {
 
     var args = try std.process.argsWithAllocator(gpa);
     defer args.deinit();
-    g_bin_path = try std.fs.cwd().realpathAlloc(gpa, args.next().?);
+    _ = args.next();
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "-C")) {
             if (args.next()) |next| {

@@ -760,7 +760,7 @@ fn (b: ^Build) addModule*(source: LazyPath): Module {
 	end := -1
 	for i,c in source.path {
 		if c == '/' {
-			start = i
+			start = i + 1
 		}
 
 		if c == '.' {

@@ -81,6 +81,7 @@ type Compile* = struct {
 //~~
 	b: ^Build
 	name: str
+	symName: str
 	kind: enum {
 		umi
 		exe
@@ -268,10 +269,10 @@ fn (b: ^Build) serialize(a: any): str {
 		}
 		return out + "}"
 	case Compile:
-		sym := b.data.symbols[v.name] 
+		sym := b.data.symbols[v.symName] 
 		if !sym.exists { b.fatal("unknown Compile: " + v.name) }
 		if sym.kind != .compile { b.fatal(v.name + " is not of type Compile") }
-		return v.name
+		return v.symName
 	case Run:
 		sym := b.data.symbols[v.name] 
 		if !sym.exists { b.fatal("unknown Run: " + v.name) }
@@ -412,11 +413,11 @@ fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 	if !b.sanitizeSymbolName(name) {
 		b.fatal("invalid symbol name: " + name)
 	}
-	if b.data.symbols[name].exists {
-		b.fatal("name already used: " + name)
-	}
 
-	b.data.symbols[name] = {
+	symName := sprintf("shared_%s_%d", name, g_symbolCounter)
+	g_symbolCounter++
+
+	b.data.symbols[symName] = {
 		exists: true,
 		kind: .compile
 	}
@@ -424,12 +425,13 @@ fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 	c := Compile{
 		b: b,
 		name: name,
+		symName: symName,
 		kind: .sharedLib
 	}
 
 	// TODO: Solve optimize at higher level
-	b.gen(sprintf("const %s = b.addSharedLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
-	b.genDiscard(name)
+	b.gen(sprintf("const %s = b.addSharedLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", symName, name))
+	b.genDiscard(symName)
 	c.genCall("addSystemIncludePath", RawString{ ".{ .cwd_relative = " + b.serialize(b.data.cacheDir) + "}" })
 	return c
 }
@@ -440,14 +442,14 @@ fn (b: ^Build) addSharedLibrary*(name: str): Compile {
 // > NOTE: The executable has to be installed with the `Compile.install` method.
 fn (b: ^Build) addExecutable*(name: str): Compile {
 //~~
-	if !b.sanitizeSymbolName(name) {
-		b.fatal("invalid symbol name: " + name)
-	}
 	if b.data.symbols[name].exists {
 		b.fatal("name already used: " + name)
 	}
 
-	b.data.symbols[name] = {
+	symName := sprintf("exe_%s_%d", name, g_symbolCounter)
+	g_symbolCounter++
+
+	b.data.symbols[symName] = {
 		exists: true,
 		kind: .compile
 	}
@@ -455,12 +457,13 @@ fn (b: ^Build) addExecutable*(name: str): Compile {
 	c := Compile{
 		b: b,
 		name: name,
+		symName: symName,
 		kind: .exe
 	}
 
 	// TODO: Solve optimize at higher level
-	b.gen(sprintf("const %s = b.addExecutable(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
-	b.genDiscard(name)
+	b.gen(sprintf("const %s = b.addExecutable(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", symName, name))
+	b.genDiscard(symName)
 	c.genCall("addSystemIncludePath", RawString{ ".{ .cwd_relative = " + b.serialize(b.data.cacheDir) + "}" })
 	return c
 }
@@ -471,14 +474,14 @@ fn (b: ^Build) addExecutable*(name: str): Compile {
 // > NOTE: The library has to be installed with the `Compile.install` method.
 fn (b: ^Build) addStaticLibrary*(name: str): Compile {
 //~~
-	if !b.sanitizeSymbolName(name) {
-		b.fatal("invalid symbol name: " + name)
-	}
 	if b.data.symbols[name].exists {
 		b.fatal("name already used: " + name)
 	}
 
-	b.data.symbols[name] = {
+	symName := sprintf("static_%s_%d", name, g_symbolCounter)
+	g_symbolCounter++
+
+	b.data.symbols[symName] = {
 		exists: true,
 		kind: .compile
 	}
@@ -486,12 +489,13 @@ fn (b: ^Build) addStaticLibrary*(name: str): Compile {
 	c := Compile{
 		b: b,
 		name: name,
+		symName: symName,
 		kind: .staticLib
 	}
 
 	// TODO: Solve optimize at higher level
-	b.gen(sprintf("const %s = b.addStaticLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", name, name))
-	b.genDiscard(name)
+	b.gen(sprintf("const %s = b.addStaticLibrary(.{.name = \"%s\",.target=b.resolveTargetQuery(target),.optimize=optimize,});", symName, name))
+	b.genDiscard(symName)
 	c.genCall("addSystemIncludePath", RawString{ ".{ .cwd_relative = " + b.serialize(b.data.cacheDir) + "}" })
 	return c
 }
@@ -593,8 +597,8 @@ fn (c: ^Compile) setVersionScript*(source: LazyPath) {
 }
 
 fn (c: ^Compile) addFileDependency*(source: LazyPath) {
-	c.b.genCallEx(c.name+".root_module", "addAnonymousImport", {
-		sprintf("anonymousImport_%d", g_symbolCounter),
+	c.b.genCallEx(c.b.serialize(c^)+".root_module", "addAnonymousImport", {
+		sprintf(c.b.serialize(c^)+"_anonymousImport_%d", g_symbolCounter),
 		map[str]any{"root_module": source}
 	})
 	g_symbolCounter++
@@ -603,7 +607,7 @@ fn (c: ^Compile) addFileDependency*(source: LazyPath) {
 //~~fn Compile.install
 fn (c: ^Compile) install*() {
 //~~
-	sym := c.name + "_install"
+	sym := c.symName + "_install"
 	if c.b.data.symbols[sym].exists { c.b.fatal("symbol exists: " + sym) }
 	c.b.data.symbols[sym] = { exists: true, kind: .install }
 	c.b.gen(sprintf("const %s = ", sym))

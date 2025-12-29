@@ -1,0 +1,8 @@
+import "bu.um"
+
+fn build*(b: ^bu::Build) {
+	mod := b.addModule(b.path("test.um"))
+	modUMI := mod.addUMI()
+	modUMI.addCSourceFile(b.path("test.c"))
+	mod.install()
+}

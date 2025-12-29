@@ -605,7 +605,7 @@ fn (c: ^Compile) addFileDependency*(source: LazyPath) {
 }
 
 //~~fn Compile.install
-fn (c: ^Compile) install*() {
+fn (c: ^Compile) install*(dir: str = ".") {
 //~~
 	sym := c.symName + "_install"
 	if c.b.data.symbols[sym].exists { c.b.fatal("symbol exists: " + sym) }
@@ -621,11 +621,8 @@ fn (c: ^Compile) install*() {
 		}
 	}
 
-	if c.b.data.installDir == ""{
-		args["dest_dir"] = RawString{".{ .override = .prefix }"}
-	} else {
-		args["dest_dir"] = RawString{sprintf(".{ .override = .{ .custom = %s }}", c.b.serialize(c.b.data.installDir))}
-	}
+	
+	args["dest_dir"] = RawString{sprintf(".{ .override = .{ .custom = %s }}", c.b.serialize(c.b.resolveInstallPath(dir)))}
 	c.b.genCall("addInstallArtifact", c, args)
 	c.b.gen(sprintf("b.getInstallStep().dependOn(&%s.step);", sym))
 }
@@ -789,18 +786,18 @@ fn (m: ^Module) addUMI*(): Compile {
 
 //~~fn Module.install
 // Install the module and its UMI (if any).
-fn (m: ^Module) install*() {
+fn (m: ^Module) install*(dir: str = ".") {
 //~~
 	m.b.genCall("installFile",
 		m.b.resolveSrcPath(m.source.path),
-		m.b.resolveInstallPath(m.name + ".um")
+		m.b.resolveInstallPath(dir + "/" + m.name + ".um")
 	)
 
 	if (m.umi.name == "") {
 		return
 	}
 
-	m.umi.install()
+	m.umi.install(dir)
 }
 
 fn umc__getTargets(T: ^void, out: ^[]Target)

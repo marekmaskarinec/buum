@@ -1,0 +1,5 @@
+import "bu.um"
+
+fn build*(b: ^bu::Build) {
+	b.addExecutable("123 test")
+}

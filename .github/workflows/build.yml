@@ -1,12 +1,12 @@
 on:
   push:
-    branches:
-      - master
+    branches: [master]
+  pull_request:
+    branches: [master]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    name: Build
     steps:
       - run: sudo apt install -y curl
       - uses: actions/checkout@v3
@@ -27,3 +27,35 @@ jobs:
         with:
           name: windows
           path: zig-out/bin/buum.exe
+
+  test_umka:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'true'
+      - run: curl -fL https://github.com/vtereshkov/umka-lang/releases/download/v1.5.5/umka_1.5.5_linux.zip -o umka_linux.zip
+      - run: unzip umka_linux.zip
+      - run: cd test/gen; UMKA=../../umka_*/umka ./run.sh
+
+  test_fs:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'true'
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: zig-out/bin
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: zig-out/bin
+
+      - run: chmod +x zig-out/bin/buum
+
+      - run: |
+          cd test/fs
+          sh run.sh

@@ -27,7 +27,16 @@ const umka_c_flags = [_][]const u8{
     "-fno-sanitize=all",
 };
 
-pub fn build(b: *std.Build) void {
+fn getVersion(b: *std.Build) ![]const u8 {
+    var code: u8 = undefined;
+    const git_ver = b.runAllowFail(&.{ "git", "describe", "--tags" }, &code, .Ignore) catch {
+        return try b.allocator.dupe(u8, "unknown");
+    };
+
+    return std.mem.trim(u8, git_ver, " \n");
+}
+
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -57,6 +66,10 @@ pub fn build(b: *std.Build) void {
     });
     exe.root_module.addAnonymousImport("umka_api", .{ .root_source_file = b.path("umka-lang/src/umka_api.h") });
     exe.linkLibrary(umka_lib);
+
+    const exe_opts = b.addOptions();
+    exe_opts.addOption([]const u8, "version", try getVersion(b));
+    exe.root_module.addOptions("build_options", exe_opts);
 
     b.installArtifact(exe);
 

@@ -3,6 +3,8 @@ const builtin = @import("builtin");
 const umka = @import("umka");
 const emb = @import("emb.zig");
 
+const build_options = @import("build_options");
+
 const bu_um = @embedFile("bu.um");
 
 const fatal = std.process.fatal;
@@ -48,6 +50,7 @@ fn printHelpAndExit(status: u8) void {
         "\t-k\t-- keep build.zig\n" ++
         "\t-g\t-- only generate\n" ++
         "\t-h\t-- show this help message\n" ++
+        "\tversion\t-- print current version and exit\n" ++
         "\tumka <file>\t-- run Umka script\n") catch {};
     std.process.exit(status);
 }
@@ -287,6 +290,9 @@ pub fn main() !void {
             }
         } else if (std.mem.eql(u8, arg, "-k")) {
             keep_build_zig = true;
+        } else if (std.mem.eql(u8, arg, "version")) {
+            std.log.info("buum version {s}", .{build_options.version});
+            std.process.exit(0);
         } else if (std.mem.eql(u8, arg, "umka")) {
             if (args.next()) |next| {
                 try runUmka(gpa, next, &args);

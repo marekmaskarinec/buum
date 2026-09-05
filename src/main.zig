@@ -64,13 +64,14 @@ fn onFree(p: [*]umka.StackSlot, r: *umka.StackSlot) callconv(.C) void {
 var g_targets: std.ArrayList(Target) = undefined;
 var g_optimize_mode: std.builtin.OptimizeMode = .ReleaseSafe;
 
-extern fn umkaMakeDynArray(self: *anyopaque, arr: *anyopaque, type: *umka.Type, size: c_int) callconv(.c) void;
+extern fn umkaMakeDynArray(self: *anyopaque, arr: *anyopaque, type: *const umka.Type, size: c_int) callconv(.c) void;
+extern fn umkaGetParamType(params: [*]umka.StackSlot, index: i32) callconv(.c) *const umka.Type;
+extern fn umkaGetBaseType(type: *const umka.Type) *const umka.Type;
 
 fn umc__getTargets(params: [*]umka.StackSlot, result: *umka.StackSlot) callconv(.c) void {
-    const typeptr: *umka.Type = params[1].ptr;
     const arr: *UmkaDynArray(Target) = @ptrCast(@alignCast(params[0].ptr));
 
-    umkaMakeDynArray(result.ptr, @ptrCast(arr), typeptr, @intCast(g_targets.items.len));
+    umkaMakeDynArray(result.ptr, @ptrCast(arr), umkaGetBaseType(umkaGetParamType(params, 0)), @intCast(g_targets.items.len));
     std.mem.copyForwards(Target, arr.slice(), g_targets.items);
 }
 

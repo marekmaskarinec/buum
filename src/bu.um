@@ -800,7 +800,7 @@ fn (m: ^Module) install*(dir: str = ".") {
 	m.umi.install(dir)
 }
 
-fn umc__getTargets(T: ^void, out: ^[]Target)
+fn umc__getTargets(out: ^[]Target)
 
 fn __init*(b: ^Build): int {
 	b.data = new(BuildData)
@@ -816,7 +816,7 @@ fn __init*(b: ^Build): int {
 		}
 	}
 
-	umc__getTargets(typeptr([]Target), &b.data.targets)
+	umc__getTargets(&b.data.targets)
 
 	b.genHeader()
 

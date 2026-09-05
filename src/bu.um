@@ -800,7 +800,7 @@ fn (m: ^Module) install*(dir: str = ".") {
 	m.umi.install(dir)
 }
 
-fn umc__getTargets(T: ^void, out: ^[]Target)
+fn umc__getTargets(out: ^[]Target)
 
 fn __init*(b: ^Build): int {
 	b.data = new(BuildData)
@@ -814,9 +814,13 @@ fn __init*(b: ^Build): int {
 		if err.code != 0 {
 			return err.code
 		}
+		printf("before scope exit\n")
 	}
+	printf("after scope exit\n")
 
-	umc__getTargets(typeptr([]Target), &b.data.targets)
+	printf("before umc__getTargets\n")
+	umc__getTargets(&b.data.targets)
+	printf("after umc__getTargets\n")
 
 	b.genHeader()
 

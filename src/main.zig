@@ -65,12 +65,13 @@ var g_targets: std.ArrayList(Target) = undefined;
 var g_optimize_mode: std.builtin.OptimizeMode = .ReleaseSafe;
 
 extern fn umkaMakeDynArray(self: *anyopaque, arr: *anyopaque, type: *umka.Type, size: c_int) callconv(.c) void;
+extern fn umkaGetParamType(params: [*]umka.StackSlot, index: i32) callconv(.c) *umka.Type;
+extern fn umkaAsm(self: *const anyopaque) callconv(.c) [*:0]u8;
 
 fn umc__getTargets(params: [*]umka.StackSlot, result: *umka.StackSlot) callconv(.c) void {
-    const typeptr: *umka.Type = params[1].ptr;
     const arr: *UmkaDynArray(Target) = @ptrCast(@alignCast(params[0].ptr));
 
-    umkaMakeDynArray(result.ptr, @ptrCast(arr), typeptr, @intCast(g_targets.items.len));
+    umkaMakeDynArray(result.ptr, @ptrCast(arr), umkaGetParamType(params, 0), @intCast(g_targets.items.len));
     std.mem.copyForwards(Target, arr.slice(), g_targets.items);
 }
 
@@ -130,6 +131,8 @@ fn runBuildUm(gpa: std.mem.Allocator, cache_dir: []const u8) ![]const u8 {
     instance.compile() catch {
         handleError("compile", instance);
     };
+
+    std.debug.print("{s}", .{umkaAsm(instance.handle)});
 
     const cache_dirZ = try gpa.dupeZ(u8, cache_dir);
     defer gpa.free(cache_dirZ);
